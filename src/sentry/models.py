@@ -355,6 +355,7 @@ class MessageBase(Model):
     culprit = models.CharField(max_length=200, blank=True, null=True, db_column='view')
     checksum = models.CharField(max_length=32, db_index=True)
     data = GzippedDictField(blank=True, null=True)
+    num_comments = models.PositiveIntegerField(default=0, null=True)
 
     class Meta:
         abstract = True
@@ -754,6 +755,49 @@ class UserOption(Model):
     def __unicode__(self):
         return u'user=%s, project=%s, key=%s, value=%s' % (self.user_id, self.project_id, self.key, self.value)
 
+
+class Comment(models.Model):
+    VISIBLE = 0
+    HIDDEN = 1
+    STATE_CHOICES = (
+        (VISIBLE, 'Visible'),
+        (HIDDEN, 'Hidden'),
+    )
+
+    project = models.ForeignKey(Project)
+    group = models.ForeignKey(Group)
+    event = models.ForeignKey(Event, null=True)
+    parent = models.ForeignKey('self', null=True)
+    text = models.TextField()
+    user = models.ForeignKey(User)
+    datetime = models.DateTimeField(null=True)
+    state = models.IntegerField(choices=STATE_CHOICES, default=VISIBLE)
+
+    @property
+    def path(self):
+        if not hasattr(self, '_path'):
+            path = [float(self.datetime.strftime('%s.%m')), self.id]
+            if self.parent:
+                path = self.parent.path + path
+            self._path = path
+        return self._path
+
+    @property
+    def depth(self):
+        return min(len(self.path) / 2 - 1, 9)
+
+    def save(self, *args, **kwargs):
+        created = bool(not self.id)
+
+        super(Comment, self).save(*args, **kwargs)
+
+        if not created:
+            return
+
+        self.group.update(num_comments=F('num_comments') + 1)
+
+        if self.event:
+            self.event.update(num_comments=F('num_comments') + 1)
 
 ### django-indexer
 
