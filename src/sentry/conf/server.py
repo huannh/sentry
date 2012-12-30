@@ -149,6 +149,7 @@ INSTALLED_APPS = (
     'kombu.transport.django',
     'raven.contrib.django',
     'sentry',
+    'sentry.plugins.sentry_interface_types',
     'sentry.plugins.sentry_mail',
     'sentry.plugins.sentry_servers',
     'sentry.plugins.sentry_urls',
@@ -179,6 +180,8 @@ if LESS_BIN:
     )
 else:
     COMPRESS_ENABLED = False
+
+COMPRESS_VERBOSE = True
 
 STATICFILES_FINDERS = (
     "django.contrib.staticfiles.finders.FileSystemFinder",
@@ -271,28 +274,42 @@ EMAIL_SUBJECT_PREFIX = '[Sentry] '
 # Disable South in tests as it is sending incorrect create signals
 SOUTH_TESTS_MIGRATE = False
 
-# Configure logging
-from raven.conf import setup_logging
-from raven.contrib.django.handlers import SentryHandler
-import logging
-
-# Configure root logger
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
-
-handler = logging.StreamHandler()
-handler.setLevel(logging.INFO)
-logger.addHandler(handler)
-
-# Disable django.request as it's generally useless
-logger = logging.getLogger('django.request')
-logger.propagate = False
-logger.addHandler(handler)
-
-# Configure default sentry logging
-sentry_handler = SentryHandler()
-sentry_handler.setLevel(logging.ERROR)
-setup_logging(sentry_handler)
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': True,
+    'handlers': {
+        'console': {
+            'level': 'WARNING',
+            'class': 'logging.StreamHandler'
+        },
+        'sentry': {
+            'class': 'raven.contrib.django.handlers.SentryHandler',
+        }
+    },
+    'loggers': {
+        '()': {
+            'handlers': ['console', 'sentry'],
+        },
+        'root': {
+            'handlers': ['console', 'sentry'],
+        },
+        'sentry': {
+            'level': 'ERROR',
+            'handlers': ['console', 'sentry'],
+            'propagate': False,
+        },
+        'sentry.errors': {
+            'level': 'ERROR',
+            'handlers': ['console'],
+            'propagate': False,
+        },
+        'django.request': {
+            'level': 'ERROR',
+            'handlers': ['console'],
+            'propagate': False,
+        },
+    }
+}
 
 # Configure celery
 import djcelery

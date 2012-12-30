@@ -14,6 +14,7 @@ import time
 import uuid
 import urlparse
 
+from datetime import timedelta
 from hashlib import md5
 from indexer.models import BaseIndex
 from picklefield.fields import PickledObjectField
@@ -45,6 +46,16 @@ from sentry.utils.imports import import_string
 from sentry.utils.strings import truncatechars
 
 __all__ = ('Event', 'Group', 'Project', 'SearchDocument')
+
+
+def slugify_instance(inst, label):
+    base_slug = slugify(label)
+    manager = type(inst).objects
+    inst.slug = base_slug
+    n = 0
+    while manager.filter(slug=inst.slug).exists():
+        n += 1
+        inst.slug = base_slug + '-' + str(n)
 
 
 class Option(Model):
@@ -81,7 +92,7 @@ class Team(Model):
 
     def save(self, *args, **kwargs):
         if not self.slug:
-            self.slug = slugify(self.name)
+            slugify_instance(self, self.name)
         super(Team, self).save(*args, **kwargs)
 
     def get_owner_name(self):
@@ -142,7 +153,7 @@ class Project(Model):
 
     def save(self, *args, **kwargs):
         if not self.slug:
-            self.slug = slugify(self.name)
+            slugify_instance(self, self.name)
         super(Project, self).save(*args, **kwargs)
 
     def delete(self):
@@ -223,6 +234,10 @@ class ProjectKey(Model):
     secret_key = models.CharField(max_length=32, unique=True, null=True)
     user = models.ForeignKey(User, null=True)
 
+    # For audits
+    user_added = models.ForeignKey(User, null=True, related_name='keys_added_set')
+    date_added = models.DateTimeField(default=timezone.now, null=True)
+
     objects = BaseManager(cache_fields=(
         'public_key',
         'secret_key',
@@ -257,6 +272,14 @@ class ProjectKey(Model):
             urlparts.netloc + urlparts.path,
             self.project_id,
         )
+
+    @property
+    def dsn_private(self):
+        return self.get_dsn(public=False)
+
+    @property
+    def dsn_public(self):
+        return self.get_dsn(public=True)
 
 
 class ProjectOption(Model):
@@ -319,29 +342,12 @@ class PendingTeamMember(Model):
         body = render_to_string('sentry/emails/member_invite.txt', context)
 
         try:
-            send_mail('%s Invite to join team: %s' % (settings.EMAIL_SUBJECT_PREFIX, self.team.name),
+            send_mail('%sInvite to join team: %s' % (settings.EMAIL_SUBJECT_PREFIX, self.team.name),
                 body, settings.SERVER_EMAIL, [self.email],
                 fail_silently=False)
         except Exception, e:
             logger = logging.getLogger('sentry.mail.errors')
             logger.exception(e)
-
-
-class View(Model):
-    """
-    A view ties directly to a view extension and simply
-    identifies it at the db level.
-    """
-    path = models.CharField(max_length=100, unique=True)
-    verbose_name = models.CharField(max_length=200, null=True)
-    verbose_name_plural = models.CharField(max_length=200, null=True)
-
-    objects = BaseManager(cache_fields=[
-        'path',
-    ])
-
-    def __unicode__(self):
-        return self.path
 
 
 class MessageBase(Model):
@@ -356,6 +362,7 @@ class MessageBase(Model):
     checksum = models.CharField(max_length=32, db_index=True)
     data = GzippedDictField(blank=True, null=True)
     num_comments = models.PositiveIntegerField(default=0, null=True)
+    platform = models.CharField(max_length=64, null=True)
 
     class Meta:
         abstract = True
@@ -398,7 +405,6 @@ class Group(MessageBase):
     time_spent_total = models.FloatField(default=0)
     time_spent_count = models.IntegerField(default=0)
     score = models.IntegerField(default=0)
-    views = models.ManyToManyField(View, blank=True)
     is_public = models.NullBooleanField(default=False, null=True)
 
     objects = GroupManager()
@@ -561,9 +567,11 @@ class Event(MessageBase):
                 cls = import_string(key)
             except ImportError:
                 pass  # suppress invalid interfaces
+
             value = cls(**data)
-            result.append((value.score, key, value))
-        return SortedDict((k, v) for _, k, v in sorted(result, key=lambda x: x[0], reverse=True))
+            result.append((key, value))
+
+        return SortedDict((k, v) for k, v in sorted(result, key=lambda x: x[1].get_score(), reverse=True))
 
     def get_version(self):
         if not self.data:
@@ -734,6 +742,9 @@ class SearchToken(Model):
     class Meta:
         unique_together = (('document', 'field', 'token'),)
 
+    def __unicode__(self):
+        return u'%s=%s' % (self.field, self.token)
+
 
 class UserOption(Model):
     """
@@ -754,6 +765,46 @@ class UserOption(Model):
 
     def __unicode__(self):
         return u'user=%s, project=%s, key=%s, value=%s' % (self.user_id, self.project_id, self.key, self.value)
+
+
+class LostPasswordHash(models.Model):
+    user = models.ForeignKey(User, unique=True)
+    hash = models.CharField(max_length=32)
+    date_added = models.DateTimeField(default=timezone.now)
+
+    def save(self, *args, **kwargs):
+        if not self.hash:
+            self.set_hash()
+        super(LostPasswordHash, self).save(*args, **kwargs)
+
+    def set_hash(self):
+        import hashlib
+        import random
+
+        self.hash = hashlib.md5(str(random.randint(1, 10000000))).hexdigest()
+
+    def is_valid(self):
+        return self.date_added > timezone.now() - timedelta(days=1)
+
+    def send_recover_mail(self):
+        from django.core.mail import send_mail
+        from sentry.web.helpers import render_to_string
+
+        context = {
+            'user': self.user,
+            'domain': urlparse.urlparse(settings.URL_PREFIX).hostname,
+            'url': '%s%s' % (settings.URL_PREFIX,
+                reverse('sentry-account-recover-confirm', args=[self.user.id, self.hash])),
+        }
+        body = render_to_string('sentry/emails/recover_account.txt', context)
+
+        try:
+            send_mail('%sPassword Recovery' % (settings.EMAIL_SUBJECT_PREFIX,),
+                body, settings.SERVER_EMAIL, [self.user.email],
+                fail_silently=False)
+        except Exception, e:
+            logger = logging.getLogger('sentry.mail.errors')
+            logger.exception(e)
 
 
 class Comment(models.Model):
@@ -798,6 +849,7 @@ class Comment(models.Model):
 
         if self.event:
             self.event.update(num_comments=F('num_comments') + 1)
+
 
 ### django-indexer
 

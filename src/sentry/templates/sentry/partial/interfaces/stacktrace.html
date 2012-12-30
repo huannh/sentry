@@ -1,7 +1,7 @@
 {% load i18n %}
 {% load sentry_helpers %}
 
-<div id="traceback" class="module">
+<div class="module">
     <div class="page-header">
         <a href="javascript:void(0)" data-container="#raw_stacktrace" data-title="Stacktrace" class="popup btn small pull-right">{% trans "Raw" %}</a>
         {% if system_frames %}
@@ -9,38 +9,52 @@
                 <label class="checkbox"><input type="checkbox" id="show_hidden_frames"> Show {{ system_frames }} hidden frames</label>
             </form>
         {% endif %}
-        <h2>{% trans "Stacktrace" %}</h2>
+        <h2>
+            {% trans "Stacktrace" %}
+            <small>{% if newest_first %}
+                ({% trans "most recent call first" %})
+            {% else %}
+                ({% trans "most recent call last" %})
+            {% endif %}</small>
+        </h2>
     </div>
     <div class="module-content">
         <ul class="traceback">
             {% for frame in frames %}
-                <li class="frame{% if not frame.in_app %} system-frame{% endif %}">
+                <li class="frame{% if not frame.in_app %} system-frame{% endif %} frame-{{ forloop.counter0 }}">
                     <p>
                         <code>{{ frame.filename }}</code>
                         {% if frame.function %} in <code>{{ frame.function }}</code>{% endif %}
                         {% if not frame.context and frame.lineno %} at line <code>{{ frame.lineno }}</code>{% endif %}
+                        {% if frame.in_app %}
+                            (application)
+                        {% endif %}
                     </p>
 
+                    {% if frame.context or frame.vars %}
+                        <div class="commands">
+                            <a href="javascript:void(0)" onclick="$('.frame-{{ forloop.counter0 }}').toggleClass('expanded')" title="{% trans "Toggle Context" %}" rel="tooltip" class="tip"><i class="icon-th-list"></i></a>
+                        </div>
+                    {% endif %}
+
                     {% if frame.context %}
-                        <ol start="{{ frame.start_lineno }}" class="context expandable" id="c{{ forloop.counter0 }}">
+                        <ol start="{{ frame.start_lineno }}" class="context">
                         {% for num, line in frame.context %}
-                            <li{% if num == frame.lineno %} class="active"{% else %} class="stack{{ forloop.parentloop.counter0 }} closed"{% endif %} onclick="$('.stack{{ forloop.parentloop.counter0 }}').toggleClass('closed')"><pre>{{ line }}</pre></li>
+                            <li{% if num == frame.lineno %} class="active"{% else %} class="expandable"{% endif %} onclick="$('.frame-{{ forloop.parentloop.counter0 }}').toggleClass('expanded')"><pre>{{ line|default_if_none:"<i>No line</i>" }}</pre></li>
                         {% endfor %}
                         </ol>
                     {% endif %}
+
                     {% if frame.vars %}
-                        <div class="commands">
-                            <a href="#" onclick="return varToggle(this, '{{ forloop.counter0 }}')"><span>&#x25b6;</span> {% trans "Context" %}</a>
-                        </div>
                         {% if frame.vars|is_dict %}
-                            <table class="table vars" id="v{{ forloop.counter0 }}" style="display:none;">
+                            <table class="table vars stack{{ forloop.counter0 }} expandable">
                                 <colgroup>
                                     <col style="width:100px;">
                                 </colgroup>
                                 <tbody>
                                     {% for key, value in frame.vars.iteritems|as_sorted %}
                                         <tr>
-                                            <td>{{ key }}</td>
+                                            <th>{{ key }}</th>
                                             <td class="code"><pre>{{ value|pprint }}</pre></td>
                                         </tr>
                                     {% endfor %}

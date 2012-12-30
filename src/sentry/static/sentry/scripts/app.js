@@ -1,12 +1,15 @@
 /*global Sentry:true*/
 
-(function(app, Backbone, jQuery, _){
+(function(window, app, Backbone, jQuery, _){
     "use strict";
 
     var $ = jQuery;
     var BasePage = Backbone.View.extend({
 
         defaults: {
+            // can this view stream updates?
+            canStream: false,
+            // should this view default to streaming updates?
             realtime: false
         },
 
@@ -63,6 +66,7 @@
                 id: id,
                 maxItems: 5,
                 pollUrl: uri,
+                stream: this.options.stream,
                 realtime: this.options.realtime,
                 model: app.Group
             });
@@ -87,6 +91,7 @@
                 members: data.groups,
                 maxItems: 50,
                 realtime: ($.cookie('pausestream') ? false : true),
+                canStream: this.options.canStream,
                 pollUrl: app.config.urlPrefix + '/api/' + app.config.projectId + '/poll/',
                 model: app.Group
             });
@@ -96,16 +101,18 @@
 
             this.control.click(_.bind(function(e){
                 e.preventDefault();
-                this.group_list.options.realtime = this.control.hasClass('realtime-pause');
+                this.options.realtime = this.group_list.options.realtime = this.control.hasClass('realtime-pause');
                 this.updateStreamOptions();
             }, this));
 
             $('#chart').height('50px');
-            app.charts.render('#chart');
+            app.charts.render('#chart', {
+                placement: 'left'
+            });
         },
 
         updateStreamOptions: function(){
-            if (this.group_list.options.realtime){
+            if (this.options.realtime){
                 $.removeCookie('pausestream');
                 this.control.removeClass('realtime-pause');
                 this.control.addClass('realtime-play');
@@ -136,8 +143,126 @@
         initialize: function(data){
             BasePage.prototype.initialize.call(this, data);
 
+            this.group_list = new app.GroupListView({
+                className: 'group-list',
+                id: 'event_list',
+                members: [data.group],
+                model: app.Group
+            });
+
             $('#chart').height('200px');
             Sentry.charts.render('#chart');
+
+            $('#public-status .action').click(function(){
+                var $this = $(this);
+                $.ajax({
+                    url: $this.attr('data-api-url'),
+                    type: 'post',
+                    success: function(group){
+                        var selector = (group.isPublic ? 'true' : 'false');
+                        var nselector = (group.isPublic ? 'false' : 'true');
+                        $('#public-status span[data-public="' + selector + '"]').show();
+                        $('#public-status span[data-public="' + nselector + '"]').hide();
+                    },
+                    error: function(){
+                        window.alert('There was an error changing the public status');
+                    }
+                });
+            });
+
+            var $event_nav = $('#event_nav');
+            if ($event_nav) {
+                var $window = $(window);
+                var $nav_links = $event_nav.find('a[href*=#]');
+                var $nav_targets = [];
+                var scroll_offset = $event_nav.offset().top;
+                var event_nav_height;
+                var last_target;
+
+                $nav_links.click(function(e){
+                    var $el = $(this);
+                    var target = $(this.hash);
+
+                    $el.parent().addClass('active').siblings().removeClass('active');
+
+                    $('html,body').animate({
+                        scrollTop: $(target).position().top + event_nav_height + 20
+                    }, 'fast');
+
+                    e.preventDefault();
+                }).each(function(){
+                    if (this.hash.length > 1 && $(this.hash).length) {
+                        $nav_targets.push(this.hash);
+                    }
+                });
+
+                $window.resize(function(){
+                    event_nav_height = $event_nav.find('.nav').outerHeight();
+                    $event_nav.height(event_nav_height + 'px');
+                }).resize();
+
+                $window.scroll(function(){
+                    // Change fixed nav if needed
+                    if ($window.scrollTop() > scroll_offset) {
+                        if (!$event_nav.hasClass('fixed')) {
+                            $event_nav.addClass('fixed');
+                        }
+                    } else if ($event_nav.hasClass('fixed')) {
+                        $event_nav.removeClass('fixed');
+                    }
+
+                    if ($nav_targets.length) {
+                        // Get container scroll position
+                        var from_top = $window.scrollTop() + event_nav_height + 20;
+                       
+                        // Get id of current scroll item
+                        var cur = $.map($nav_targets, function(hash){
+                            if ($(hash).offset().top < from_top) {
+                                return hash;
+                            }
+                        });
+
+                        // Get the id of the current element
+                        var target = cur ? cur[cur.length - 1] : null;
+
+                        if (!target) {
+                            target = $nav_targets[0];
+                        }
+
+                        if (last_target !== target) {
+                           last_target = target;
+
+                           // Set/remove active class
+                           $nav_links
+                             .parent().removeClass("active")
+                             .end().filter("[href=" + target + "]").parent().addClass("active");
+                        }  
+                    }
+                }).scroll();
+            }
+        }
+    });
+
+    app.NewProjectPage = BasePage.extend({
+
+        initialize: function(data){
+            this.el = $(data.el);
+
+            BasePage.prototype.initialize.call(this, data);
+
+            this.el.find('select').select2({width: 'element'});
+
+            if (this.options.canSelectTeam && this.options.canCreateTeam) {
+                $('#new_team').hide();
+                $('a[rel="create-new-team"]').click(function(){
+                    $('#new_team').show();
+                    $('#select_team').hide();
+                });
+                $('a[rel="select-team"]').click(function(){
+                    $('#new_team').hide();
+                    $('#select_team').show();
+                });
+            }
         }
 
     });
@@ -217,4 +342,4 @@
     Backbone.sync = function(method, model, success, error){
         success();
     };
-}(app, Backbone, jQuery, _));
+}(window, app, Backbone, jQuery, _));

@@ -13,7 +13,7 @@ import itertools
 import urlparse
 
 from django.http import QueryDict
-from django.utils.translation import ugettext_lazy as _
+from django.utils.translation import ugettext as _
 
 from sentry.app import env
 from sentry.models import UserOption
@@ -61,6 +61,7 @@ class Interface(object):
     """
 
     score = 0
+    display_score = None
 
     def __init__(self, **kwargs):
         self.attrs = kwargs.keys()
@@ -92,8 +93,17 @@ class Interface(object):
     def to_string(self, event):
         return ''
 
+    def get_slug(self):
+        return type(self).__name__.lower()
+
     def get_title(self):
-        return _(self.__class__.__name__)
+        return _(type(self).__name__)
+
+    def get_display_score(self):
+        return self.display_score or self.score
+
+    def get_score(self):
+        return self.score
 
     def get_search_context(self, event):
         """
@@ -144,7 +154,7 @@ class Message(Interface):
         elif isinstance(self.params, dict):
             params = self.params.values()
         else:
-            params = ()
+            params = []
         return {
             'text': [self.message] + params,
         }
@@ -188,6 +198,8 @@ class Stacktrace(Interface):
     The stacktrace contains one element, ``frames``, which is a list of hashes. Each
     hash must contain **at least** the ``filename`` attribute. The rest of the values
     are optional, but recommended.
+
+    The list of frames should be ordered by the oldest call first.
 
     Each frame must contain the following attributes:
 
@@ -254,19 +266,6 @@ class Stacktrace(Interface):
             if 'in_app' in frame:
                 frame['in_app'] = bool(frame['in_app'])
 
-    def _shorten(self, value, depth=1):
-        if depth > 5:
-            return type(value)
-        if isinstance(value, dict):
-            return dict((k, self._shorten(v, depth + 1)) for k, v in sorted(value.iteritems())[:100 / depth])
-        elif isinstance(value, (list, tuple, set, frozenset)):
-            return tuple(self._shorten(v, depth + 1) for v in value)[:100 / depth]
-        elif isinstance(value, (int, long, float)):
-            return value
-        elif not value:
-            return value
-        return value[:100]
-
     def serialize(self):
         return {
             'frames': self.frames,
@@ -281,18 +280,40 @@ class Stacktrace(Interface):
     def get_hash(self):
         output = []
         for frame in self.frames:
-            if frame.get('module'):
-                output.append(frame['module'])
-            else:
-                output.append(frame['filename'])
-
-            if frame.get('context_line'):
-                output.append(frame['context_line'])
-            elif frame.get('function'):
-                output.append(frame['function'])
-            elif frame.get('lineno'):
-                output.append(frame['lineno'])
+            output.extend(self.get_frame_hash(frame))
         return output
+
+    def get_frame_hash(self, frame):
+        output = []
+        if frame.get('module'):
+            output.append(frame['module'])
+        else:
+            output.append(frame['filename'])
+
+        if frame.get('context_line'):
+            output.append(frame['context_line'])
+        elif frame.get('function'):
+            output.append(frame['function'])
+        elif frame.get('lineno'):
+            output.append(frame['lineno'])
+        return output
+
+    def is_newest_frame_first(self, event):
+        newest_first = event.platform not in ('python', None)
+
+        if env.request and env.request.user.is_authenticated():
+            display = UserOption.objects.get_value(
+                user=env.request.user,
+                project=None,
+                key='stacktrace_order',
+                default=None,
+            )
+            if display == '1':
+                newest_first = False
+            elif display == '2':
+                newest_first = True
+
+        return newest_first
 
     def to_html(self, event):
         system_frames = 0
@@ -307,7 +328,7 @@ class Stacktrace(Interface):
 
             context_vars = []
             if frame.get('vars'):
-                context_vars = self._shorten(frame['vars'])
+                context_vars = frame['vars']
             else:
                 context_vars = []
 
@@ -335,31 +356,43 @@ class Stacktrace(Interface):
         if len(frames) == system_frames:
             system_frames = 0
 
-        if env.request and env.request.user.is_authenticated():
-            display = UserOption.objects.get_value(
-                user=env.request.user,
-                project=None,
-                key='stacktrace_order',
-                default=None,
-            )
-            if display == '2':
-                frames.reverse()
+        newest_first = self.is_newest_frame_first(event)
+        if newest_first:
+            frames = frames[::-1]
 
         return render_to_string('sentry/partial/interfaces/stacktrace.html', {
+            'newest_first': newest_first,
             'system_frames': system_frames,
             'event': event,
             'frames': frames,
-            'stacktrace': self.get_traceback(event),
+            'stacktrace': self.get_traceback(event, newest_first=newest_first),
         })
 
     def to_string(self, event):
-        return self.get_stacktrace(event)
+        return self.get_stacktrace(event, system_frames=False)
 
-    def get_stacktrace(self, event):
-        result = [
-            'Stacktrace (most recent call last):', '',
-        ]
-        for frame in self.frames:
+    def get_stacktrace(self, event, system_frames=True, newest_first=None):
+        if newest_first is None:
+            newest_first = self.is_newest_frame_first(event)
+
+        result = []
+        if newest_first:
+            result.append(_('Stacktrace (most recent call first):'))
+        else:
+            result.append(_('Stacktrace (most recent call last):'))
+
+        result.append('')
+
+        frames = self.frames
+        if not system_frames:
+            frames = [f for f in frames if f.get('in_app')]
+            if not frames:
+                frames = self.frames
+
+        if newest_first:
+            frames = frames[::-1]
+
+        for frame in frames:
             pieces = ['  File "%(filename)s"']
             if 'lineno' in frame:
                 pieces.append(', line %(lineno)s')
@@ -372,10 +405,10 @@ class Stacktrace(Interface):
 
         return '\n'.join(result)
 
-    def get_traceback(self, event):
+    def get_traceback(self, event, newest_first=None):
         result = [
             event.message, '',
-            self.get_stacktrace(event),
+            self.get_stacktrace(event, newest_first=newest_first),
         ]
 
         return '\n'.join(result)
@@ -400,6 +433,7 @@ class Exception(Interface):
     """
 
     score = 900
+    display_score = 1200
 
     def __init__(self, value, type=None, module=None):
         # A human readable value for the exception
@@ -467,7 +501,8 @@ class Http(Interface):
     >>>  }
     """
 
-    score = 10000
+    display_score = 10000
+    score = 800
 
     # methods as defined by http://www.w3.org/Protocols/rfc2616/rfc2616-sec9.html + PATCH
     METHODS = ('GET', 'POST', 'PUT', 'OPTIONS', 'HEAD', 'DELETE', 'TRACE', 'CONNECT', 'PATCH')
@@ -564,6 +599,9 @@ class Http(Interface):
             'env': self.env,
         })
 
+    def get_title(self):
+        return _('Request')
+
     def get_search_context(self, event):
         return {
             'filters': {
@@ -594,7 +632,7 @@ class Template(Interface):
     >>> }
     """
 
-    score = 1001
+    score = 1100
 
     def __init__(self, filename, context_line, lineno, pre_context=None, post_context=None,
                  abs_path=None):

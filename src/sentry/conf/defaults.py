@@ -35,8 +35,6 @@ DEFAULT_LOG_LEVEL = 'error'
 
 DEFAULT_LOGGER_NAME = 'root'
 
-ADMINS = []
-
 # Absolute URL to the sentry root directory. Should not include a trailing slash.
 URL_PREFIX = ''
 
@@ -109,13 +107,6 @@ QUEUE = {
     'transport': 'kombu.transport.django.Transport',
 }
 
-# List of event aggregation views
-VIEWS = (
-    'sentry.views.Exception',
-    'sentry.views.Message',
-    'sentry.views.Query',
-)
-
 # Should users without 'sentry.add_project' permissions be allowed
 # to create new projects
 ALLOW_PROJECT_CREATION = False
@@ -183,4 +174,5 @@ AUTH_PROVIDERS = {
     'github': ('GITHUB_APP_ID', 'GITHUB_API_SECRET'),
     'google': ('GOOGLE_OAUTH2_CLIENT_ID', 'GOOGLE_OAUTH2_CLIENT_SECRET'),
     'trello': ('TRELLO_API_KEY', 'TRELLO_API_SECRET'),
+    'bitbucket': ('BITBUCKET_CONSUMER_KEY', 'BITBUCKET_CONSUMER_SECRET'),
 }

@@ -6,24 +6,11 @@
 
 {% block title %}{{ project.name }} | {{ block.super }}{% endblock %}
 
-{% block meta %}
+{% block breadcrumb %}
     {{ block.super }}
+    <li class="divider">/</li>
+    <li><a href="{% url sentry-stream project.slug %}">{% trans "Stream" %}</a></li>
 {% endblock %}
-
-{% block page_header %}
-    <div class="btn-group pull-right">
-        {% if VIEWS %}
-            {% querystring from request without view as view_querystring %}
-            <a class="btn small{% if not view %} active{% endif %}" href="?{{ view_querystring }}">{% trans "All" %}</a>
-            {% for v in VIEWS %}
-                <a class="btn small{% if view == v %} active{% endif %}" href="?{{ view_querystring }}&amp;view={{ v.pk }}">{% trans v.verbose_name_plural %}</a>
-            {% endfor %}
-        {% endif %}
-    </div>
-    {{ block.super }}
-{% endblock %}
-
-{% block breadcrumb %}{% endblock %}
 
 {% block sidebar %}
     <div id="chart" class="chart" data-api-url="{% url sentry-api-chart %}" data-days="1">
@@ -147,7 +134,8 @@
     $(function(){
         new app.StreamPage({
             groups: {{ event_list.paginator.objects|to_json:request|safe }},
-            realtime: {{ has_realtime|to_json|safe }}
+            canStream: {{ has_realtime|to_json|safe }},
+            realtime: true
         });
     });
     </script>

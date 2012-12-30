@@ -4,13 +4,14 @@ from __future__ import absolute_import
 
 import datetime
 import mock
+import pytest
 
 from django.utils import timezone
-from nose.plugins.skip import SkipTest
 from sentry.interfaces import Interface
+from sentry.manager import get_checksum_from_event
 from sentry.models import Event, Group, Project, MessageCountByMinute, ProjectCountByMinute, \
   SearchDocument
-from sentry.utils.db import has_trending
+from sentry.utils.db import has_trending  # NOQA
 from sentry.testutils import TestCase
 
 
@@ -140,6 +141,13 @@ class SentryManagerTest(TestCase):
         group = event.group
         add_tags.assert_called_once_with(group, [('foo', 'bar'), ('logger', 'root'), ('level', 'error')])
 
+    @mock.patch('sentry.manager.send_group_processors', mock.Mock())
+    def test_platform_is_saved(self):
+        event = Group.objects.from_kwargs(1, message='foo', platform='python')
+        group = event.group
+        self.assertEquals(group.platform, 'python')
+        self.assertEquals(event.platform, 'python')
+
     def test_dupe_message_id(self):
         event = Group.objects.from_kwargs(1, event_id=1, message='foo')
         self.assertEquals(event.message, 'foo')
@@ -226,11 +234,8 @@ class SearchManagerTest(TestCase):
         self.assertEquals(results[0].id, doc.id)
 
 
+@pytest.mark.skipif('not has_trending()')
 class TrendsTest(TestCase):
-    def setUp(self):
-        if not has_trending():
-            raise SkipTest('This database does not support trends.')
-
     def test_accelerated_works_at_all(self):
         now = timezone.now() - datetime.timedelta(minutes=5)
         project = Project.objects.all()[0]
@@ -244,3 +249,30 @@ class TrendsTest(TestCase):
 
         results = list(Group.objects.get_accelerated([project.id], base_qs)[:25])
         self.assertEquals(results, [group, group2])
+
+
+class GetChecksumFromEventTest(TestCase):
+    @mock.patch('sentry.interfaces.Stacktrace.get_composite_hash')
+    @mock.patch('sentry.interfaces.Http.get_composite_hash')
+    def test_stacktrace_wins_over_http(self, http_comp_hash, stack_comp_hash):
+        # this was a regression, and a very important one
+        http_comp_hash.return_value = ['baz']
+        stack_comp_hash.return_value = ['foo', 'bar']
+        event = Event(
+            data={
+                'sentry.interfaces.Stacktrace': {
+                    'frames': [{
+                        'lineno': 1,
+                        'filename': 'foo.py',
+                    }],
+                },
+                'sentry.interfaces.Http': {
+                    'url': 'http://example.com'
+                },
+            },
+            message='Foo bar',
+        )
+        checksum = get_checksum_from_event(event)
+        stack_comp_hash.assert_called_once_with(interfaces=event.interfaces)
+        assert not http_comp_hash.called
+        assert checksum == '3858f62230ac3c915f300c664312c63f'

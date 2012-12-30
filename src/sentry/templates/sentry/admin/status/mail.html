@@ -2,6 +2,7 @@
 
 {% block admin-nav-queue %} class="active"{% endblock %}
 
+{% load crispy_forms_tags %}
 {% load i18n %}
 {% load sentry_helpers %}
 
@@ -16,26 +17,26 @@
     <div class="page-header">
         <h2>{% trans "SMTP Settings" %}</h2>
     </div>
-    <table class="table vars table-bordered table-striped">
+    <table class="table table-bordered table-striped">
         <colgroup>
             <col style="width:120px">
         </colgroup>
         <tbody>
             <tr>
                 <th>{% trans "Host" %}</th>
-                <td>{{ EMAIL_HOST }}:{{ EMAIL_PORT }}</td>
+                <td class="code">{{ EMAIL_HOST }}:{{ EMAIL_PORT }}</td>
             </tr>
             <tr>
                 <th>{% trans "Username" %}</th>
-                <td>{% if EMAIL_HOST_USER %}{{ EMAIL_HOST_USER }}{% else %}<em>{% trans "not set" %}</em>{% endif %}</td>
+                <td class="code">{% if EMAIL_HOST_USER %}{{ EMAIL_HOST_USER }}{% else %}<em>{% trans "not set" %}</em>{% endif %}</td>
             </tr>
             <tr>
                 <th>{% trans "Password" %}</th>
-                <td>{% if EMAIL_HOST_PASSWORD %}********{% else %}<em>{% trans "not set" %}</em>{% endif %}</td>
+                <td class="code">{% if EMAIL_HOST_PASSWORD %}********{% else %}<em>{% trans "not set" %}</em>{% endif %}</td>
             </tr>
             <tr>
                 <th>{% trans "TLS?" %}</th>
-                <td>{% if EMAIL_USE_TLS %}{% trans "Yes" %}{% else %}{% trans "No" %}{% endif %}</td>
+                <td class="code">{% if EMAIL_USE_TLS %}{% trans "Yes" %}{% else %}{% trans "No" %}{% endif %}</td>
             </tr>
         </tbody>
     </table>
@@ -47,16 +48,7 @@
 
         <p>{% trans "Send an email to your account's email address to confirm that everything is configured correctly." %}</p>
 
-        {% if form.non_field_errors %}
-            <div class="alert alert-block alert-error">
-                <p>{% trans "There was an error sending a test email:" %}</p>
-                <ul>
-                    {% for error in form.non_field_errors %}
-                        <li>{{ error }}</li>
-                    {% endfor %}
-                </ul>
-            </div>
-        {% endif %}
+        {{ form|as_crispy_errors }}
 
         {% for field in form %}
             {% include "sentry/partial/_form_field.html" %}

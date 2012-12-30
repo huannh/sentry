@@ -78,3 +78,25 @@ class OriginsField(CharField):
             return False
 
         return True
+
+
+def get_team_label(team):
+    return '%s (%s)' % (team.name, team.slug)
+
+
+def get_team_choices(team_list, default=None):
+    sorted_team_list = sorted(team_list.itervalues(), key=lambda x: x.name)
+
+    choices = []
+    for team in sorted_team_list:
+        # TODO: optimize queries
+        choices.append(
+            (team.id, get_team_label(team))
+        )
+
+    if default is None:
+        choices.insert(0, (-1, mark_safe('&ndash;' * 8)))
+    elif default not in sorted_team_list:
+        choices.insert(0, (default.id, get_team_label(default)))
+
+    return choices

@@ -70,20 +70,11 @@ class AccountSettingsForm(forms.Form):
     old_password = forms.CharField(label=_('Current password'), widget=forms.PasswordInput)
     email = forms.EmailField(label=_('Email'))
     first_name = forms.CharField(required=True, label=_('Name'))
-    new_password1 = forms.CharField(label=_('New password'), widget=forms.PasswordInput, required=False)
-    new_password2 = forms.CharField(label=_('New password confirmation'), widget=forms.PasswordInput, required=False)
+    new_password = forms.CharField(label=_('New password'), widget=forms.PasswordInput, required=False)
 
     def __init__(self, user, *args, **kwargs):
         self.user = user
         super(AccountSettingsForm, self).__init__(*args, **kwargs)
-
-    def clean_new_password2(self):
-        password1 = self.cleaned_data.get('new_password1')
-        password2 = self.cleaned_data.get('new_password2')
-        if password1 and password2:
-            if password1 != password2:
-                raise forms.ValidationError(_("The two password fields didn't match."))
-        return password2
 
     def clean_old_password(self):
         """
@@ -95,8 +86,8 @@ class AccountSettingsForm(forms.Form):
         return old_password
 
     def save(self, commit=True):
-        if self.cleaned_data['new_password2']:
-            self.user.set_password(self.cleaned_data['new_password1'])
+        if self.cleaned_data.get('new_password'):
+            self.user.set_password(self.cleaned_data['new_password'])
         self.user.first_name = self.cleaned_data['first_name']
         self.user.email = self.cleaned_data['email']
         if commit:
@@ -108,10 +99,10 @@ class AccountSettingsForm(forms.Form):
 class AppearanceSettingsForm(forms.Form):
     language = forms.ChoiceField(label=_('Language'), choices=settings.LANGUAGES, required=False)
     stacktrace_order = forms.ChoiceField(label=_('Stacktrace order'), choices=(
-        ('', 'Default'),
+        ('-1', 'Default (let Sentry decide)'),
         ('1', 'Most recent call last'),
         ('2', 'Most recent call first'),
-    ), required=False)
+    ), help_text='Choose the default ordering of frames in stacktraces.', required=False)
 
     def __init__(self, user, *args, **kwargs):
         self.user = user
@@ -125,6 +116,7 @@ class AppearanceSettingsForm(forms.Form):
         # if commit:
         #     self.user.save()
 
+        print self.user, "setting options"
         # Save user language
         UserOption.objects.set_value(
             user=self.user,
@@ -142,3 +134,20 @@ class AppearanceSettingsForm(forms.Form):
         )
 
         return self.user
+
+
+class RecoverPasswordForm(forms.Form):
+    user = forms.CharField(label=_('Username'))
+
+    def clean_user(self):
+        value = self.cleaned_data.get('user')
+        if value:
+            try:
+                return User.objects.get(username__iexact=value)
+            except User.DoesNotExist:
+                raise forms.ValidationError(_("We were unable to find a matching user."))
+        return None
+
+
+class ChangePasswordRecoverForm(forms.Form):
+    password = forms.CharField(widget=forms.PasswordInput())
