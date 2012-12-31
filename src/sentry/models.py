@@ -807,6 +807,25 @@ class LostPasswordHash(models.Model):
             logger.exception(e)
 
 
+class Activity(models.Model):
+    COMMENT = 0
+    STATUS_CHANGE = 1
+    TYPE = (
+        (COMMENT, 'Comment'),
+        (STATUS_CHANGE, 'Status Change'),
+    )
+
+    project = models.ForeignKey(Project)
+    group = models.ForeignKey(Group)
+    event = models.ForeignKey(Event, null=True)
+    # index on (type, ident)
+    type = models.PositiveIntegerField(choices=TYPE)
+    ident = models.CharField(max_length=64, null=True)
+    user = models.ForeignKey(User)
+    datetime = models.DateTimeField(null=True)
+    data = GzippedDictField(null=True)
+
+
 class Comment(models.Model):
     VISIBLE = 0
     HIDDEN = 1
