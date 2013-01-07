@@ -1,3 +1,18 @@
+Version 5.2.0
+-------------
+
+This version of Sentry changes quite a bit of functionality around teams. If you're
+developed an extension that relied on the existance of a single team per project,
+you will want to ensure that it is works with the new multi-team behavior.
+
+Additionally, a new user's affected-tracking mechanism is present (storage only). This will
+become available in the UX in a future version, and relies on the existing HTTP
+and User interface datas.
+
+- [New] Multiple teams can now be assigned to a project.
+- [New] Group.users_seen will now track unique users when possible.
+
+
 Version 5.1.2
 -------------
 

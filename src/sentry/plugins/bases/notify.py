@@ -9,7 +9,7 @@ from django import forms
 from django.contrib.auth.models import User
 from django.utils.translation import ugettext_lazy as _
 from sentry.plugins import Plugin
-from sentry.models import UserOption
+from sentry.models import UserOption, TeamMember
 from sentry.utils.cache import cache
 from sentry.web.helpers import get_project_list
 from sentry.constants import MEMBER_USER
@@ -85,9 +85,11 @@ class NotificationPlugin(Plugin):
         ).values_list('user', flat=True))
 
         # fetch remaining users
-        member_set = set(project.team.member_set.filter(
+        member_set = set(TeamMember.objects.filter(
+            team__projects=project,
+            is_active=True,
             user__is_active=True,
-        ).exclude(user__in=disabled).values_list('user', flat=True))
+        ).exclude(user__in=disabled).values_list('user_id', flat=True))
 
         return member_set
 

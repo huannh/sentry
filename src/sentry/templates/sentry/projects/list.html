@@ -22,14 +22,12 @@
             <table class="table table-bordered table-striped">
                 <colgroup>
                     <col>
-                    <col style="width:100px;">
                     <col style="width:150px;">
                     <col style="width:100px;">
                 </colgroup>
                 <thead>
                     <tr>
                         <th>{% trans "Name" %}</th>
-                        <th style="text-align:center;">{% trans "Membership" %}</th>
                         <th style="text-align:center;">{% trans "Owner" %}</th>
                         <th style="text-align:center;">{% trans "Status" %}</th>
                     </tr>
@@ -39,11 +37,7 @@
                         <tr>
                             <td>
                                 <a href="{% url sentry-manage-project project.slug %}">{{ project.name }}</a> <small>(<a href="{% url sentry project.slug %}">{% trans "Stream" %}</a>)</small><br/>
-                                {% if project.member_dsn %}
-                                    <small><code class="clippy">{{ project.member_dsn }}</code></small>
-                                {% endif %}
                             </td>
-                            <td style="text-align:center;vertical-align:middle;">{{ project.member_type }}</td>
                             <td style="text-align:center;vertical-align:middle;">
                                 {% if project.owner %}
                                     {{ project.owner.username }}

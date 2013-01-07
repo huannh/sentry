@@ -13,8 +13,7 @@ from django.utils.translation import ugettext_lazy as _
 from sentry.constants import EMPTY_PASSWORD_VALUES
 from sentry.models import Project, ProjectOption
 from sentry.permissions import can_set_public_projects
-from sentry.web.forms.fields import RadioFieldRenderer, UserField, OriginsField, \
-  get_team_choices
+from sentry.web.forms.fields import RadioFieldRenderer, UserField, OriginsField
 
 
 class ProjectTagsForm(forms.Form):
@@ -100,24 +99,17 @@ class RemoveProjectForm(forms.Form):
 
 class EditProjectForm(forms.ModelForm):
     public = forms.BooleanField(required=False, help_text=_('Allow anyone (even anonymous users) to view this project'))
-    team = forms.TypedChoiceField(choices=(), coerce=int)
     origins = OriginsField(required=False)
 
     class Meta:
-        fields = ('name', 'public', 'team')
+        fields = ('name', 'public')
         model = Project
 
-    def __init__(self, request, team_list, data, instance, *args, **kwargs):
+    def __init__(self, request, data, instance, *args, **kwargs):
         super(EditProjectForm, self).__init__(data=data, instance=instance, *args, **kwargs)
-        self.team_list = dict((t.pk, t) for t in team_list.itervalues())
 
         if not can_set_public_projects(request.user):
             del self.fields['public']
-        if len(team_list) == 1 and instance.team == team_list.values()[0]:
-            del self.fields['team']
-        else:
-            self.fields['team'].choices = get_team_choices(self.team_list, instance.team)
-            self.fields['team'].widget.choices = self.fields['team'].choices
 
     def clean_team(self):
         value = self.cleaned_data.get('team')
@@ -128,9 +120,8 @@ class EditProjectForm(forms.ModelForm):
 
 
 class EditProjectAdminForm(EditProjectForm):
-    team = forms.ChoiceField(choices=(), required=False)
     owner = UserField(required=False)
 
     class Meta:
-        fields = ('name', 'public', 'team', 'owner')
+        fields = ('name', 'public', 'owner')
         model = Project

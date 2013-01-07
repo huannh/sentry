@@ -7,7 +7,7 @@ import mock
 
 from django.contrib.auth.models import User
 
-from sentry.models import Project
+from sentry.models import Project, Team, TeamProject
 from sentry.exceptions import InvalidTimestamp, InvalidInterface, InvalidData
 from sentry.coreapi import project_from_id, project_from_api_key_and_id, \
   extract_auth_vars, project_from_auth_vars, APIUnauthorized, \
@@ -19,9 +19,11 @@ from sentry.testutils import TestCase
 class BaseAPITest(TestCase):
     def setUp(self):
         self.user = User.objects.create(username='coreapi')
-        self.project = Project.objects.create(owner=self.user, name='Foo', slug='bar')
-        self.pm = self.project.team.member_set.get_or_create(user=self.user)[0]
-        self.pk = self.project.key_set.get_or_create(user=self.user)[0]
+        self.project = Project.objects.create(owner=self.user, name='Foo')
+        self.team = Team.objects.create(owner=self.user, name='Foo')
+        TeamProject.objects.create(team=self.team, project=self.project)
+        self.pm = self.team.member_set.get(user=self.user)
+        self.pk = self.project.key_set.create(project=self.project, user=self.user)
 
 
 class ProjectFromIdTest(BaseAPITest):

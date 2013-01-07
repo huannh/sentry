@@ -4,11 +4,11 @@ from __future__ import absolute_import
 
 import mock
 from mock import Mock
+from django.contrib.auth.models import User
 from django.utils import timezone
 from sentry.interfaces import Stacktrace
-from sentry.models import Event, Group, Project
+from sentry.models import Event, Group, Project, UserOption, Team, TeamProject
 from sentry.plugins.sentry_mail.models import MailProcessor
-
 from sentry.testutils import TestCase
 
 
@@ -214,9 +214,6 @@ class MailProcessorTest(TestCase):
                          sorted(p.get_send_to(project)))
 
     def test_get_emails_for_users(self):
-        from django.contrib.auth.models import User
-        from sentry.models import UserOption
-
         user = User.objects.create(username='foo', email='foo@example.com')
         user2 = User.objects.create(username='baz', email='baz@example.com')
 
@@ -230,16 +227,15 @@ class MailProcessorTest(TestCase):
                           sorted([user.email, 'foobaz@example.com']))
 
     def test_get_sendable_users(self):
-        from django.contrib.auth.models import User
-        from sentry.models import Project, UserOption
-
         user = User.objects.create(username='foo', email='foo@example.com', is_active=True)
         user2 = User.objects.create(username='baz', email='baz@example.com', is_active=True)
         user3 = User.objects.create(username='bar', email='bar@example.com', is_active=False)
-        project = Project.objects.create(name='Test', slug='test', owner=user)
-        project.team.member_set.get_or_create(user=user)
-        project.team.member_set.get_or_create(user=user2)
-        project.team.member_set.get_or_create(user=user3)
+        project = Project.objects.create(name='Test', owner=user)
+        team = Team.objects.create(name='Test', owner=user)
+        team.member_set.get_or_create(user=user)
+        team.member_set.get_or_create(user=user2)
+        team.member_set.get_or_create(user=user3)
+        TeamProject.objects.create(team=team, project=project)
 
         p = MailProcessor()
 

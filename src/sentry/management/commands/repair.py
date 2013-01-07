@@ -60,8 +60,8 @@ class Command(BaseCommand):
         # Create missing project keys
         print "Creating missing project keys"
         for team in Team.objects.all():
-            for member in team.member_set.select_related('user'):
-                for project in team.project_set.all():
+            for member in team.members.select_related('user'):
+                for project in team.projects.all():
                     created = ProjectKey.objects.get_or_create(
                         project=project,
                         user=member.user,

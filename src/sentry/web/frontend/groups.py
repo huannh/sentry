@@ -46,8 +46,8 @@ def _get_group_list(request, project):
     event_list = Group.objects
     if request.user.is_authenticated() and request.GET.get('bookmarks'):
         event_list = event_list.filter(
-            bookmark_set__project=project,
-            bookmark_set__user=request.user,
+            groupbookmark__project=project,
+            groupbookmark__user=request.user,
         )
     else:
         event_list = event_list.filter(project=project)

@@ -77,7 +77,7 @@ class ManageProjectTeamTest(TestCase):
         self.assertTemplateUsed('sentry/projects/team.html')
         self.assertIn('pending_member_list', resp.context)
         self.assertIn('member_list', resp.context)
-        self.assertIn('can_add_member', resp.context)
+        self.assertIn('team_list', resp.context)
 
 
 class ManageProjectKeysTest(TestCase):

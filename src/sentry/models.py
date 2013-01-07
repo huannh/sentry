@@ -42,7 +42,7 @@ from sentry.manager import GroupManager, ProjectManager, \
 from sentry.signals import buffer_incr_complete
 from sentry.utils import cached_property, \
   MockDjangoRequest
-from sentry.utils.models import Model, GzippedDictField, update
+from sentry.utils.models import Model, GzippedDictField
 from sentry.utils.imports import import_string
 from sentry.utils.strings import truncatechars
 
@@ -75,56 +75,6 @@ class Option(Model):
     ])
 
 
-class Team(Model):
-    """
-    A team represents a group of individuals which maintain ownership of projects.
-    """
-    slug = models.SlugField(unique=True)
-    name = models.CharField(max_length=64)
-    owner = models.ForeignKey(User)
-
-    objects = TeamManager(cache_fields=(
-        'pk',
-        'slug',
-    ))
-
-    def __unicode__(self):
-        return u'%s (%s)' % (self.name, self.slug)
-
-    def save(self, *args, **kwargs):
-        if not self.slug:
-            slugify_instance(self, self.name)
-        super(Team, self).save(*args, **kwargs)
-
-    def get_owner_name(self):
-        if not self.owner:
-            return None
-        if self.owner.first_name:
-            return self.owner.first_name
-        if self.owner.email:
-            return self.owner.email.split('@', 1)[0]
-        return self.owner.username
-
-
-class TeamMember(Model):
-    """
-    Identifies relationships between teams and users.
-    """
-    team = models.ForeignKey(Team, related_name="member_set")
-    user = models.ForeignKey(User, related_name="sentry_teammember_set")
-    is_active = models.BooleanField(default=True)
-    type = models.IntegerField(choices=MEMBER_TYPES, default=globals().get(settings.DEFAULT_PROJECT_ACCESS))
-    date_added = models.DateTimeField(default=timezone.now)
-
-    objects = BaseManager()
-
-    class Meta:
-        unique_together = (('team', 'user'),)
-
-    def __unicode__(self):
-        return u'team=%s, user=%s, type=%s' % (self.team_id, self.user_id, self.get_type_display())
-
-
 class Project(Model):
     """
     Projects are permission based namespaces which generally
@@ -134,9 +84,9 @@ class Project(Model):
     have an owner (which is thought of as a project creator).
     """
     slug = models.SlugField(unique=True, null=True)
+    _team = models.ForeignKey('sentry.Team', db_column='team_id', null=True, related_name='legacy_team')
     name = models.CharField(max_length=200)
-    owner = models.ForeignKey(User, related_name="sentry_owned_project_set", null=True)
-    team = models.ForeignKey(Team, null=True)
+    owner = models.ForeignKey(User, related_name="owned_project", null=True)
     public = models.BooleanField(default=settings.ALLOW_PUBLIC_PROJECTS and settings.PUBLIC)
     date_added = models.DateTimeField(default=timezone.now)
     status = models.PositiveIntegerField(default=0, choices=(
@@ -228,6 +178,12 @@ class Project(Model):
             self._tag_cache = tags
         return self._tag_cache
 
+    @property
+    def team(self):
+        import warnings
+        warnings.warn('Project.team is deprecated, inefficient, and incorrect.', DeprecationWarning)
+        return self._team or Team.objects.filter(projects=self)[0]
+
 
 class ProjectKey(Model):
     project = models.ForeignKey(Project, related_name='key_set')
@@ -302,6 +258,75 @@ class ProjectOption(Model):
 
     def __unicode__(self):
         return u'project=%s, key=%s, value=%s' % (self.project_id, self.key, self.value)
+
+
+class Team(Model):
+    """
+    A team represents a group of individuals which maintain ownership of projects.
+    """
+    slug = models.SlugField(unique=True)
+    name = models.CharField(max_length=64)
+    owner = models.ForeignKey(User, related_name='team_owner', null=True)
+    projects = models.ManyToManyField(Project, through='sentry.TeamProject')
+    members = models.ManyToManyField(User, through='sentry.TeamMember')
+
+    objects = TeamManager(cache_fields=(
+        'pk',
+        'slug',
+    ))
+
+    def __unicode__(self):
+        return u'%s (%s)' % (self.name, self.slug)
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            slugify_instance(self, self.name)
+        super(Team, self).save(*args, **kwargs)
+
+    def get_owner_name(self):
+        if not self.owner:
+            return None
+        if self.owner.first_name:
+            return self.owner.first_name
+        if self.owner.email:
+            return self.owner.email.split('@', 1)[0]
+        return self.owner.username
+
+
+class TeamProject(Model):
+    """
+    Identifies relationships between teams and projects.
+    """
+    team = models.ForeignKey(Team, related_name="project_set")
+    project = models.ForeignKey(Project)
+    date_added = models.DateTimeField(default=timezone.now)
+
+    objects = BaseManager()
+
+    class Meta:
+        unique_together = (('team', 'project'),)
+
+    def __unicode__(self):
+        return u'team=%s, project=%s' % (self.team_id, self.project_id)
+
+
+class TeamMember(Model):
+    """
+    Identifies relationships between teams and users.
+    """
+    team = models.ForeignKey(Team, related_name="member_set")
+    user = models.ForeignKey(User)
+    is_active = models.BooleanField(default=True)
+    type = models.IntegerField(choices=MEMBER_TYPES, default=globals().get(settings.DEFAULT_PROJECT_ACCESS))
+    date_added = models.DateTimeField(default=timezone.now)
+
+    objects = BaseManager()
+
+    class Meta:
+        unique_together = (('team', 'user'),)
+
+    def __unicode__(self):
+        return u'team=%s, user=%s, type=%s' % (self.team_id, self.user_id, self.get_type_display())
 
 
 class PendingTeamMember(Model):
@@ -639,10 +664,10 @@ class GroupBookmark(Model):
     Identifies a bookmark relationship between a user and an
     aggregated event (Group).
     """
-    project = models.ForeignKey(Project, related_name="bookmark_set")  # denormalized
-    group = models.ForeignKey(Group, related_name="bookmark_set")
+    project = models.ForeignKey(Project)
+    group = models.ForeignKey(Group)
     # namespace related_name on User since we dont own the model
-    user = models.ForeignKey(User, related_name="sentry_bookmark_set")
+    user = models.ForeignKey(User)
 
     objects = BaseManager()
 
@@ -902,6 +927,14 @@ def create_default_project(created_models, verbosity=2, **kwargs):
             project=project,
         )
 
+        TeamProject.objects.create(
+            project=project,
+            team=Team.objects.create(
+                owner=project.owner,
+                name=project.name,
+            ),
+        )
+
         if verbosity > 0:
             print 'Created internal Sentry project (slug=%s, id=%s)' % (project.slug, project.id)
 
@@ -917,30 +950,16 @@ def create_default_project(created_models, verbosity=2, **kwargs):
                 print 'done!'
 
 
-def create_team_and_keys_for_project(instance, created, **kwargs):
+def create_default_project_key(instance, created, **kwargs):
     if not created or kwargs.get('raw'):
         return
 
     if not instance.owner:
         return
 
-    if not instance.team:
-        update(instance, team=Team.objects.create(
-            owner=instance.owner,
-            name=instance.name,
-            slug=instance.slug,
-        ))
-
-        ProjectKey.objects.get_or_create(
-            project=instance,
-            user=instance.owner,
-        )
-    else:
-        for member in instance.team.member_set.all():
-            ProjectKey.objects.get_or_create(
-                project=instance,
-                user=member.user,
-            )
+    ProjectKey.objects.get_or_create(
+        project=instance,
+    )
 
 
 def create_team_member_for_owner(instance, created, **kwargs):
@@ -966,23 +985,15 @@ def update_document(instance, created, **kwargs):
     ).update(status=instance.status)
 
 
-def create_key_for_team_member(instance, created, **kwargs):
-    if not created or kwargs.get('raw'):
-        return
-
-    for project in instance.team.project_set.all():
-        ProjectKey.objects.get_or_create(
-            project=project,
-            user=instance.user,
-        )
-
-
 def remove_key_for_team_member(instance, **kwargs):
-    for project in instance.team.project_set.all():
-        ProjectKey.objects.filter(
-            project=project,
-            user=instance.user,
-        ).delete()
+    # Clean up any existing ProjectKey's which exist for the user, but the user
+    # no longer has access to
+    for project in instance.team.projects.all():
+        if not TeamProject.objects.filter(project=project, team__member__user=instance.user).exists():
+            ProjectKey.objects.filter(
+                project=project,
+                user=instance.user,
+            ).delete()
 
 
 # Set user language if set
@@ -1019,9 +1030,9 @@ post_syncdb.connect(
     weak=False,
 )
 post_save.connect(
-    create_team_and_keys_for_project,
+    create_default_project_key,
     sender=Project,
-    dispatch_uid="create_team_and_keys_for_project",
+    dispatch_uid="create_default_project_key",
     weak=False,
 )
 post_save.connect(
@@ -1034,12 +1045,6 @@ post_save.connect(
     update_document,
     sender=Group,
     dispatch_uid="update_document",
-    weak=False,
-)
-post_save.connect(
-    create_key_for_team_member,
-    sender=TeamMember,
-    dispatch_uid="create_key_for_team_member",
     weak=False,
 )
 pre_delete.connect(

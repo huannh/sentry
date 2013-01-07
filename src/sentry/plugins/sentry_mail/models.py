@@ -136,7 +136,7 @@ class MailProcessor(NotificationPlugin):
             send_to_list = set(send_to_list)
 
             send_to_members = self.get_option('send_to_members', project)
-            if send_to_members and project and project.team:
+            if send_to_members and project:
                 member_set = self.get_sendable_users(project)
                 send_to_list |= set(self.get_emails_for_users(member_set))
 

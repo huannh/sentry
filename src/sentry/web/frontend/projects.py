@@ -6,6 +6,7 @@ sentry.web.frontend.projects
 :license: BSD, see LICENSE for more details.
 """
 from django.contrib import messages
+from django.contrib.auth.models import User
 from django.core.context_processors import csrf
 from django.core.urlresolvers import reverse
 from django.http import HttpResponseRedirect
@@ -13,9 +14,10 @@ from django.views.decorators.csrf import csrf_protect
 from django.views.decorators.http import require_http_methods
 
 from sentry.constants import MEMBER_OWNER
-from sentry.models import TeamMember, ProjectKey, Team, FilterKey, Group
+from sentry.models import ProjectKey, Team, TeamProject, PendingTeamMember, \
+  FilterKey, Group
 from sentry.permissions import can_create_projects, can_remove_project, can_create_teams, \
-  can_add_team_member, can_add_project_key, can_remove_project_key
+  can_add_project_key, can_remove_project_key
 from sentry.plugins import plugins
 from sentry.plugins.helpers import set_option, get_option
 from sentry.web.decorators import login_required, has_access
@@ -45,22 +47,6 @@ def get_started(request, project):
 @login_required
 def project_list(request):
     project_list = get_project_list(request.user, hidden=True, select_related=["owner"]).values()
-    team_list = Team.objects.in_bulk([p.team_id for p in project_list])
-    if request.user.is_authenticated():
-        memberships = dict((tm.team_id, tm) for tm in TeamMember.objects.filter(user=request.user, team__in=team_list))
-        keys = dict((p.project_id, p) for p in ProjectKey.objects.filter(user=request.user, project__in=project_list))
-    else:
-        memberships = {}
-        keys = {}
-
-    for project in project_list:
-        key = keys.get(project.id)
-        if key:
-            project.member_dsn = key.get_dsn()
-
-        member = memberships.get(project.team_id)
-        if member:
-            project.member_type = member.get_type_display()
 
     return render_to_response('sentry/projects/list.html', {
         'PROJECT_LIST': project_list,
@@ -69,8 +55,6 @@ def project_list(request):
 
 @login_required
 def new_project(request):
-    from django.contrib.auth.models import User
-
     if not can_create_projects(request.user):
         return HttpResponseRedirect(reverse('sentry'))
 
@@ -110,6 +94,7 @@ def new_project(request):
         project = project_form.save(commit=False)
         if not project.owner:
             project.owner = request.user
+        project.save()
 
         if is_new_team:
             team = new_team_form.save(commit=False)
@@ -118,8 +103,7 @@ def new_project(request):
         else:
             team = select_team_form.cleaned_data['team']
 
-        project.team = team
-        project.save()
+        TeamProject.objects.create(team=team, project=project)
 
         return HttpResponseRedirect(reverse('sentry-get-started', args=[project.slug]))
 
@@ -170,9 +154,6 @@ def manage_project(request, project):
     if result is False and not request.user.has_perm('sentry.can_change_project'):
         return HttpResponseRedirect(reverse('sentry'))
 
-    # XXX: We probably shouldnt allow changing the team unless they're the project owner
-    team_list = Team.objects.get_for_user(project.owner or request.user, MEMBER_OWNER)
-
     can_admin_project = request.user == project.owner or request.user.has_perm('sentry.can_change_project')
 
     if can_admin_project:
@@ -180,7 +161,7 @@ def manage_project(request, project):
     else:
         form_cls = EditProjectForm
 
-    form = form_cls(request, team_list, request.POST or None, instance=project, initial={
+    form = form_cls(request, request.POST or None, instance=project, initial={
         'origins': '\n'.join(get_option('sentry:origins', project) or []),
         'owner': project.owner,
     })
@@ -196,7 +177,6 @@ def manage_project(request, project):
         'page': 'details',
         'form': form,
         'project': project,
-        'TEAM_LIST': team_list.values(),
         'SECTION': 'settings',
     })
 
@@ -210,23 +190,21 @@ def manage_project_team(request, project):
     if result is False and not request.user.has_perm('sentry.can_change_project'):
         return HttpResponseRedirect(reverse('sentry'))
 
-    team = project.team
+    team_list = list(project.team_set.select_related('owner').order_by('name'))
 
-    if not team:
-        member_list = []
-        pending_member_list = []
-    else:
-        member_list = [(tm, tm.user) for tm in team.member_set.select_related('user')]
-        pending_member_list = [(pm, pm.email) for pm in team.pending_member_set.all().order_by('email')]
+    member_list = list(User.objects.filter(teammember__team__projects=project).distinct())
+
+    pending_member_list = list(PendingTeamMember.objects.filter(
+        team__projects=project,
+    ).order_by('email').values_list('email', flat=True).distinct())
 
     context = csrf(request)
     context.update({
         'page': 'team',
         'project': project,
-        'team': team,
+        'team_list': team_list,
         'member_list': member_list,
         'pending_member_list': pending_member_list,
-        'can_add_member': can_add_team_member(request.user, project.team),
         'SECTION': 'settings',
     })
 

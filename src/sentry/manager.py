@@ -21,7 +21,7 @@ from celery.signals import task_postrun
 from django.conf import settings as dj_settings
 from django.core.signals import request_finished
 from django.db import models, transaction, IntegrityError
-from django.db.models import Sum
+from django.db.models import Sum, Q
 from django.db.models.expressions import ExpressionNode
 from django.db.models.signals import post_save, post_delete, post_init, class_prepared
 from django.utils import timezone
@@ -787,7 +787,43 @@ class RawQuerySet(object):
 
 
 class ProjectManager(BaseManager, ChartMixin):
-    pass
+    def get_for_user(self, user, access=None, hidden=False, key='id', select_related=None):
+        # TODO: optimize this
+        from sentry.models import Team, TeamProject
+
+        base_qs = self
+        if not hidden:
+            base_qs = base_qs.filter(status=0)
+        if select_related is not None:
+            base_qs = base_qs.select_related(*select_related)
+
+        # Collect kwarg queries to filter on. We can use this to perform a single
+        # query to get all of the desired projects ordered by name
+        filters = Q()
+
+        # If we're not requesting specific access include all
+        # public projects
+        if access is None:
+            filters |= Q(public=True)
+        elif not (user and user.is_authenticated()):
+            return SortedDict()
+
+        # If the user is authenticated, include their memberships
+        if user and user.is_authenticated():
+            # realistically a project should always have a team, where the
+            # owner is bound, but that's not guaranteed
+            filters |= Q(owner=user)
+
+            teams = Team.objects.get_for_user(user, access).values()
+            if not teams and access is not None:
+                return SortedDict()
+
+            filters |= Q(id__in=TeamProject.objects.filter(
+                team__in=teams,
+            ).values_list('project_id', flat=True))
+
+        return SortedDict((getattr(p, key), p)
+            for p in base_qs.filter(filters).order_by('name'))
 
 
 class MetaManager(BaseManager):

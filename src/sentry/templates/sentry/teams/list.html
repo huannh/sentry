@@ -24,7 +24,6 @@
             <colgroup>
                 <col>
                 <col style="width:100px;">
-                <col style="width:150px;">
             </colgroup>
             <thead>
                 <tr>
@@ -38,8 +37,12 @@
                         <td>
                             <a href="{% url sentry-manage-team team.slug %}">{{ team.name }}</a><br/>
                         </td>
-                        <td style="text-align:center;vertical-align:middle;">
-                            {{ team.owner.username }}
+                        <td style="text-align:center">
+                            {% if team.owner %}
+                                {{ team.owner.username }}
+                            {% else %}
+                                &mdash;
+                            {% endif %}
                         </td>
                     </tr>
                 {% endfor %}

@@ -214,7 +214,7 @@ def as_bookmarks(group_list, user):
     group_list = list(group_list)
     if user.is_authenticated() and group_list:
         project = group_list[0].project
-        bookmarks = set(project.bookmark_set.filter(
+        bookmarks = set(project.groupbookmark_set.filter(
             user=user,
             group__in=group_list,
         ).values_list('group_id', flat=True))
@@ -228,7 +228,7 @@ def as_bookmarks(group_list, user):
 @register.filter
 def is_bookmarked(group, user):
     if user.is_authenticated():
-        return group.bookmark_set.filter(
+        return group.groupbookmark_set.filter(
             user=user,
             group=group,
         ).exists()
@@ -301,7 +301,7 @@ def with_metadata(group_list, request):
     group_list = list(group_list)
     if request.user.is_authenticated() and group_list:
         project = group_list[0].project
-        bookmarks = set(project.bookmark_set.filter(
+        bookmarks = set(project.groupbookmark_set.filter(
             user=request.user,
             group__in=group_list,
         ).values_list('group_id', flat=True))

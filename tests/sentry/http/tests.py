@@ -10,7 +10,7 @@ from django.core.urlresolvers import reverse
 from django.utils import timezone
 
 from raven import Client
-from sentry.models import Group, Event, Project
+from sentry.models import Group, Event, Project, Team, TeamProject
 from sentry.testutils import TestCase
 
 
@@ -21,9 +21,11 @@ class RavenIntegrationTest(TestCase):
     """
     def setUp(self):
         self.user = User.objects.create(username='coreapi')
-        self.project = Project.objects.create(owner=self.user, name='Foo', slug='bar')
-        self.pm = self.project.team.member_set.get_or_create(user=self.user)[0]
-        self.pk = self.project.key_set.get_or_create(user=self.user)[0]
+        self.project = Project.objects.create(owner=self.user, name='Foo')
+        self.team = Team.objects.create(owner=self.user, name='Foo')
+        TeamProject.objects.create(team=self.team, project=self.project)
+        self.pm = self.team.member_set.get(user=self.user)
+        self.pk = self.project.key_set.create(project=self.project, user=self.user)
 
     def sendRemote(self, url, data, headers={}):
         # TODO: make this install a temporary handler which raises an assertion error
@@ -57,98 +59,3 @@ class RavenIntegrationTest(TestCase):
         self.assertEquals(group.event_set.count(), 1)
         instance = group.event_set.get()
         self.assertEquals(instance.message, 'foo')
-
-
-class SentryRemoteTest(TestCase):
-    def test_correct_data(self):
-        kwargs = {'message': 'hello', 'server_name': 'not_dcramer.local', 'level': 40, 'site': 'not_a_real_site'}
-        resp = self._postWithHeader(kwargs)
-        self.assertEquals(resp.status_code, 200, resp.content)
-        instance = Event.objects.get()
-        self.assertEquals(instance.message, 'hello')
-        self.assertEquals(instance.server_name, 'not_dcramer.local')
-        self.assertEquals(instance.level, 40)
-        self.assertEquals(instance.site, 'not_a_real_site')
-
-    def test_unicode_keys(self):
-        kwargs = {u'message': 'hello', u'server_name': 'not_dcramer.local', u'level': 40, u'site': 'not_a_real_site'}
-        resp = self._postWithSignature(kwargs)
-        self.assertEquals(resp.status_code, 200, resp.content)
-        instance = Event.objects.get()
-        self.assertEquals(instance.message, 'hello')
-        self.assertEquals(instance.server_name, 'not_dcramer.local')
-        self.assertEquals(instance.level, 40)
-        self.assertEquals(instance.site, 'not_a_real_site')
-
-    def test_timestamp(self):
-        timestamp = timezone.now().replace(microsecond=0, tzinfo=timezone.utc) - datetime.timedelta(hours=1)
-        kwargs = {u'message': 'hello', 'timestamp': timestamp.strftime('%s.%f')}
-        resp = self._postWithSignature(kwargs)
-        self.assertEquals(resp.status_code, 200, resp.content)
-        instance = Event.objects.get()
-        self.assertEquals(instance.message, 'hello')
-        self.assertEquals(instance.datetime, timestamp)
-        group = instance.group
-        self.assertEquals(group.first_seen, timestamp)
-        self.assertEquals(group.last_seen, timestamp)
-
-    def test_timestamp_as_iso(self):
-        timestamp = timezone.now().replace(microsecond=0, tzinfo=timezone.utc) - datetime.timedelta(hours=1)
-        kwargs = {u'message': 'hello', 'timestamp': timestamp.strftime('%Y-%m-%dT%H:%M:%S.%f')}
-        resp = self._postWithSignature(kwargs)
-        self.assertEquals(resp.status_code, 200, resp.content)
-        instance = Event.objects.get()
-        self.assertEquals(instance.message, 'hello')
-        self.assertEquals(instance.datetime, timestamp)
-        group = instance.group
-        self.assertEquals(group.first_seen, timestamp)
-        self.assertEquals(group.last_seen, timestamp)
-
-    def test_ungzipped_data(self):
-        kwargs = {'message': 'hello', 'server_name': 'not_dcramer.local', 'level': 40, 'site': 'not_a_real_site'}
-        resp = self._postWithSignature(kwargs)
-        self.assertEquals(resp.status_code, 200)
-        instance = Event.objects.get()
-        self.assertEquals(instance.message, 'hello')
-        self.assertEquals(instance.server_name, 'not_dcramer.local')
-        self.assertEquals(instance.site, 'not_a_real_site')
-        self.assertEquals(instance.level, 40)
-
-    # def test_byte_sequence(self):
-    #     """
-    #     invalid byte sequence for encoding "UTF8": 0xedb7af
-    #     """
-    #     # TODO:
-    #     # add 'site' to data in fixtures/bad_data.json, then assert it's set correctly below
-
-    #     fname = os.path.join(os.path.dirname(__file__), 'fixtures/bad_data.json')
-    #     data = open(fname).read()
-
-    #     resp = self.client.post(reverse('sentry-api-store'), {
-    #         'data': data,
-    #         'key': settings.KEY,
-    #     })
-
-    #     self.assertEquals(resp.status_code, 200)
-
-    #     self.assertEquals(Event.objects.count(), 1)
-
-    #     instance = Event.objects.get()
-
-    #     self.assertEquals(instance.message, 'DatabaseError: invalid byte sequence for encoding "UTF8": 0xeda4ac\nHINT:  This error can also happen if the byte sequence does not match the encoding expected by the server, which is controlled by "client_encoding".\n')
-    #     self.assertEquals(instance.server_name, 'shilling.disqus.net')
-    #     self.assertEquals(instance.level, 40)
-
-    def test_signature(self):
-        kwargs = {'message': 'hello', 'server_name': 'not_dcramer.local', 'level': 40, 'site': 'not_a_real_site'}
-
-        resp = self._postWithSignature(kwargs)
-
-        self.assertEquals(resp.status_code, 200, resp.content)
-
-        instance = Event.objects.get()
-
-        self.assertEquals(instance.message, 'hello')
-        self.assertEquals(instance.server_name, 'not_dcramer.local')
-        self.assertEquals(instance.site, 'not_a_real_site')
-        self.assertEquals(instance.level, 40)

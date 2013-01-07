@@ -55,16 +55,10 @@ class ProjectKeyTest(TestCase):
         with self.Settings(SENTRY_URL_PREFIX='http://example.com:81'):
             self.assertEquals(key.get_dsn(), 'http://public:secret@example.com:81/1')
 
-    def test_key_is_created_for_project_with_existing_team(self):
-        user = User.objects.create(username='admin')
-        team = Team.objects.create(name='Test', slug='test', owner=user)
-        project = Project.objects.create(name='Test', slug='test', owner=user, team=team)
-        self.assertTrue(project.key_set.filter(user=user).exists())
-
-    def test_key_is_created_for_project_with_new_team(self):
+    def test_key_is_created_for_project(self):
         user = User.objects.create(username='admin')
         project = Project.objects.create(name='Test', slug='test', owner=user)
-        self.assertTrue(project.key_set.filter(user=user).exists())
+        self.assertTrue(project.key_set.filter(project=project).exists())
 
 
 class PendingTeamMemberTest(TestCase):

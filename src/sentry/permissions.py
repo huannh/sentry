@@ -7,7 +7,7 @@ sentry.permissions
 """
 from functools import wraps
 from sentry.conf import settings
-from sentry.constants import MEMBER_OWNER
+from sentry.constants import MEMBER_OWNER, MEMBER_USER
 from sentry.plugins import plugins
 
 
@@ -131,7 +131,7 @@ def can_remove_team_member(user, member):
 @requires_login
 def can_remove_team(user, team):
     # projects with teams can never be removed
-    if team.project_set.exists():
+    if team.projects.exists():
         return False
 
     # permissions always take precedence
@@ -151,6 +151,8 @@ def can_remove_team(user, team):
 
 @requires_login
 def can_remove_project(user, project):
+    from sentry.models import TeamMember
+
     if project.is_default_project():
         return False
 
@@ -158,8 +160,8 @@ def can_remove_project(user, project):
     if user.has_perm('sentry.can_remove_project'):
         return True
 
-    # must be an owner of the team
-    if not project.team.member_set.filter(user=user, type=MEMBER_OWNER).exists():
+    # must be an owner of a team
+    if not TeamMember.objects.filter(user=user, type=MEMBER_OWNER, team__projects=project).exists():
         return False
 
     result = plugins.first('has_perm', user, 'remove_project', project)
@@ -172,11 +174,10 @@ def can_remove_project(user, project):
 @requires_login
 @perm_override('can_change_group')
 def can_admin_group(user, group):
-    from sentry.models import Team
+    from sentry.models import TeamMember
+
     # We make the assumption that we have a valid membership here
-    try:
-        Team.objects.get_for_user(user)[group.project.team.slug]
-    except KeyError:
+    if not TeamMember.objects.filter(user=user, type=MEMBER_USER, team__projects=group.project).exists():
         return False
 
     result = plugins.first('has_perm', user, 'admin_event', group)
@@ -189,8 +190,10 @@ def can_admin_group(user, group):
 @requires_login
 @perm_override('can_add_projectkey')
 def can_add_project_key(user, project):
+    from sentry.models import TeamMember
+
     # must be an owner of the team
-    if project.team and not project.team.member_set.filter(user=user, type=MEMBER_OWNER).exists():
+    if not TeamMember.objects.filter(user=user, type=MEMBER_OWNER, team__projects=project).exists():
         return False
 
     result = plugins.first('has_perm', user, 'add_project_key', project)
@@ -203,10 +206,12 @@ def can_add_project_key(user, project):
 @requires_login
 @perm_override('can_remove_projectkey')
 def can_remove_project_key(user, key):
+    from sentry.models import TeamMember
+
     project = key.project
 
     # must be an owner of the team
-    if project.team and not project.team.member_set.filter(user=user, type=MEMBER_OWNER).exists():
+    if not TeamMember.objects.filter(team__project=project, user=user, type=MEMBER_OWNER).exists():
         return False
 
     result = plugins.first('has_perm', user, 'remove_project_key', project, key)

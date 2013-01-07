@@ -20,7 +20,7 @@ from django.utils.encoding import smart_str
 
 from sentry.conf import settings
 from sentry.exceptions import InvalidInterface, InvalidData, InvalidTimestamp
-from sentry.models import Project, ProjectKey, TeamMember, Team
+from sentry.models import Project, ProjectKey, TeamMember
 from sentry.plugins import plugins
 from sentry.tasks.store import store_event
 from sentry.utils import is_float, json
@@ -98,14 +98,7 @@ def project_from_auth_vars(auth_vars):
     project = Project.objects.get_from_cache(pk=pk.project_id)
 
     if pk.user:
-        try:
-            team = Team.objects.get_from_cache(pk=project.team_id)
-        except Team.DoesNotExist:
-            raise APIUnauthorized('Member does not have access to project')
-
-        try:
-            TeamMember.objects.get(team=team, user=pk.user, is_active=True)
-        except TeamMember.DoesNotExist:
+        if not TeamMember.objects.filter(team__projects=project, user=pk.user, is_active=True).exists():
             raise APIUnauthorized('Member does not have access to project')
 
         # We have to refetch this as it may have been catched
@@ -136,11 +129,7 @@ def project_from_api_key_and_id(api_key, project_id):
     project = Project.objects.get_from_cache(pk=pk.project_id)
 
     if pk.user:
-        team = Team.objects.get_from_cache(pk=project.team_id)
-
-        try:
-            tm = TeamMember.objects.get(team=team, user=pk.user, is_active=True)
-        except TeamMember.DoesNotExist:
+        if not TeamMember.objects.filter(team__projects=project, user=pk.user, is_active=True).exists():
             raise APIUnauthorized('Member does not have access to project')
 
         # We have to refetch this as it may have been catched
@@ -148,11 +137,9 @@ def project_from_api_key_and_id(api_key, project_id):
         if not pk.user.is_active:
             raise APIUnauthorized('Account is not active')
 
-        tm.project = project
-
-        result = plugins.first('has_perm', tm.user, 'create_event', project)
+        result = plugins.first('has_perm', pk.user, 'create_event', project)
         if result is False:
-            raise APIForbidden('Creation of this event was blocked')
+            raise APIForbidden('Creation of this event was blocked by a plugin')
 
     return project
 
@@ -170,23 +157,12 @@ def project_from_id(request):
     except Project.DoesNotExist:
         raise APIUnauthorized('Invalid project')
 
-    try:
-        team = Team.objects.get_from_cache(pk=project.team_id)
-    except Project.DoesNotExist:
-        raise APIUnauthorized('Member does not have access to project')
-
-    try:
-        TeamMember.objects.get(
-            user=request.user,
-            team=team,
-            is_active=True,
-        )
-    except TeamMember.DoesNotExist:
+    if not TeamMember.objects.filter(team__projects=project, user=request.user, is_active=True).exists():
         raise APIUnauthorized('Member does not have access to project')
 
     result = plugins.first('has_perm', request.user, 'create_event', project)
     if result is False:
-        raise APIForbidden('Creation of this event was blocked')
+        raise APIForbidden('Creation of this event was blocked by a plugin')
 
     return project
 

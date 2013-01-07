@@ -10,7 +10,7 @@ from django.core.urlresolvers import reverse
 
 from sentry.conf import settings
 from sentry.constants import MEMBER_USER
-from sentry.models import Group, Project, TeamMember, Team
+from sentry.models import Group, Project, Team, TeamMember, TeamProject
 from sentry.testutils import TestCase, fixture, before
 
 logger = logging.getLogger(__name__)
@@ -211,6 +211,15 @@ class PermissionBase(TestCase):
     """
     fixtures = ['tests/fixtures/views.json']
 
+    @before
+    def create_project(self):
+        self.project = Project.objects.create(
+            name='Test',
+            public=False,
+            owner=self.owner,
+        )
+        TeamProject.objects.create(team=self.team, project=self.project)
+
     @fixture
     def admin(self):
         user = User(username="admin", email="admin@localhost", is_staff=True, is_superuser=True)
@@ -243,9 +252,6 @@ class PermissionBase(TestCase):
         user = User(username="owner", email="owner@localhost")
         user.set_password('owner')
         user.save()
-
-        Team.objects.create(owner=user, name='foo', slug='foo')
-
         return user
 
     @fixture
@@ -254,13 +260,7 @@ class PermissionBase(TestCase):
 
     @fixture
     def team(self):
-        return Team.objects.get(owner=self.owner, slug='foo')
-
-    @fixture
-    def project(self):
-        project = Project.objects.get(id=1)
-        project.update(public=False, team=self.team)
-        return project
+        return Team.objects.create(owner=self.owner, name='Test')
 
     def _assertPerm(self, path, template, account=None, want=True):
         """
@@ -361,43 +361,43 @@ class RemoveProjectTest(PermissionBase):
         return reverse('sentry-remove-project', kwargs={'project_id': self.project.id})
 
     def test_admin_cannot_remove_default(self):
-        with self.Settings(SENTRY_PROJECT=1):
+        with self.Settings(SENTRY_PROJECT=self.project.id):
             self._assertPerm(self.path, self.template, self.admin.username, False)
 
     def test_owner_cannot_remove_default(self):
-        with self.Settings(SENTRY_PROJECT=1):
+        with self.Settings(SENTRY_PROJECT=self.project.id):
             self._assertPerm(self.path, self.template, self.owner.username, False)
 
     def test_anonymous_cannot_remove_default(self):
-        with self.Settings(SENTRY_PROJECT=1):
+        with self.Settings(SENTRY_PROJECT=self.project.id):
             self._assertPerm(self.path, self.template, None, False)
 
     def test_user_cannot_remove_default(self):
-        with self.Settings(SENTRY_PROJECT=1):
+        with self.Settings(SENTRY_PROJECT=self.project.id):
             self._assertPerm(self.path, self.template, self.nobody.username, False)
 
     def test_member_cannot_remove_default(self):
-        with self.Settings(SENTRY_PROJECT=1):
+        with self.Settings(SENTRY_PROJECT=self.project.id):
             self._assertPerm(self.path, self.template, self.member.username, False)
 
     def test_admin_can_load(self):
-        with self.Settings(SENTRY_PROJECT=2):
+        with self.Settings(SENTRY_PROJECT=0):
             self._assertPerm(self.path, self.template, self.admin.username)
 
     def test_owner_can_load(self):
-        with self.Settings(SENTRY_PROJECT=2):
+        with self.Settings(SENTRY_PROJECT=0):
             self._assertPerm(self.path, self.template, self.owner.username)
 
     def test_anonymous_cannot_load(self):
-        with self.Settings(SENTRY_PROJECT=2):
+        with self.Settings(SENTRY_PROJECT=0):
             self._assertPerm(self.path, self.template, None, False)
 
     def test_user_cannot_load(self):
-        with self.Settings(SENTRY_PROJECT=2):
+        with self.Settings(SENTRY_PROJECT=0):
             self._assertPerm(self.path, self.template, self.nobody.username, False)
 
     def test_member_cannot_load(self):
-        with self.Settings(SENTRY_PROJECT=2):
+        with self.Settings(SENTRY_PROJECT=0):
             self._assertPerm(self.path, self.template, self.member.username, False)
 
 

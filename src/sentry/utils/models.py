@@ -81,7 +81,8 @@ class Model(models.Model):
 
     def __get_field_value(self, field):
         if isinstance(field, models.ForeignKey):
-            return getattr(self, field.column)
+            # HACK: not sure why field.column isnt used, but meh
+            return getattr(self, field.name + '_id')
         return getattr(self, field.name)
 
     def _update_tracked_data(self):

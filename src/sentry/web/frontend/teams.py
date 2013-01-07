@@ -13,7 +13,7 @@ from django.views.decorators.csrf import csrf_protect
 from django.utils.translation import ugettext as _
 
 from sentry.constants import MEMBER_USER, MEMBER_OWNER
-from sentry.models import PendingTeamMember, TeamMember
+from sentry.models import PendingTeamMember, TeamMember, TeamProject
 from sentry.permissions import can_add_team_member, can_remove_team, can_create_projects, \
   can_create_teams, can_edit_team_member, can_remove_team_member
 from sentry.plugins import plugins
@@ -111,7 +111,7 @@ def manage_team_projects(request, team):
     if result is False and not request.user.has_perm('sentry.can_change_team'):
         return HttpResponseRedirect(reverse('sentry'))
 
-    project_list = list(team.project_set.all())
+    project_list = list(team.projects.all())
 
     context = csrf(request)
     context.update({
@@ -227,7 +227,7 @@ def accept_invite(request, member_id, token):
     context = {
         'team': team,
         'team_owner': team.get_owner_name(),
-        'project_list': list(team.project_set.filter(status=0)),
+        'project_list': list(team.projects.filter(status=0)),
     }
 
     if not request.user.is_authenticated():
@@ -430,10 +430,12 @@ def create_new_team_project(request, team):
     form = form_cls(request.POST or None, initial=initial)
     if form.is_valid():
         project = form.save(commit=False)
-        project.team = team
         if not project.owner:
             project.owner = request.user
         project.save()
+
+        TeamProject.objects.create(team=team, project=project)
+
         return HttpResponseRedirect(reverse('sentry-manage-project', args=[project.slug]))
 
     context = csrf(request)
