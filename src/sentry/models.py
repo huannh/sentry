@@ -939,7 +939,14 @@ def create_default_project(created_models, verbosity=2, **kwargs):
         if Project.objects.filter(pk=settings.PROJECT).exists():
             return
 
+        organization = Organization.objects.create(
+            name='Sentry',
+            slug='sentry',
+        )
+
         project = Project.objects.create(
+            organization=organization,
+            id=settings.PROJECT,
             public=settings.ALLOW_PUBLIC_PROJECTS and settings.PUBLIC,
             name='Sentry (Internal)',
             slug='sentry',
@@ -952,6 +959,7 @@ def create_default_project(created_models, verbosity=2, **kwargs):
         TeamProject.objects.create(
             project=project,
             team=Team.objects.create(
+                organization=organization,
                 owner=project.owner,
                 name=project.name,
             ),
