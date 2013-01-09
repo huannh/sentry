@@ -11,17 +11,17 @@ from django.conf import settings as dj_settings
 from django.core.urlresolvers import reverse
 
 from sentry.conf import settings
+from sentry.models import Project
 from sentry.permissions import can_create_projects
 from sentry.web.decorators import login_required
-from sentry.web.helpers import get_login_url, get_project_list, \
-  render_to_response
+from sentry.web.helpers import get_login_url, render_to_response
 
 STATIC_PATH_CACHE = {}
 
 
 @login_required
 def dashboard(request, template='dashboard.html'):
-    project_list = get_project_list(request.user, key='slug')
+    project_list = Project.objects.get_for_user(request.user, key='slug')
     has_projects = len(project_list) > 1 or (len(project_list) == 1 and project_list.values()[0].pk != settings.PROJECT)
 
     if not has_projects:

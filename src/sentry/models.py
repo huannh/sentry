@@ -25,8 +25,8 @@ from django.contrib.auth.signals import user_logged_in
 from django.core.urlresolvers import reverse
 from django.db import models
 from django.db.models import F, Sum
-from django.db.models.signals import post_syncdb, post_save, pre_delete, \
-  class_prepared
+from django.db.models.signals import (post_syncdb, post_save, pre_delete,
+  class_prepared)
 from django.template.defaultfilters import slugify
 from django.utils import timezone
 from django.utils.datastructures import SortedDict
@@ -36,12 +36,11 @@ from django.utils.translation import ugettext_lazy as _
 from sentry.conf import settings
 from sentry.constants import (STATUS_LEVELS, MEMBER_TYPES,  # NOQA
   MEMBER_OWNER, MEMBER_USER, MEMBER_SYSTEM)  # NOQA
-from sentry.manager import GroupManager, ProjectManager, \
-  MetaManager, InstanceMetaManager, SearchDocumentManager, BaseManager, \
-  UserOptionManager, FilterKeyManager, TeamManager
+from sentry.manager import (GroupManager, ProjectManager,
+  MetaManager, InstanceMetaManager, SearchDocumentManager, BaseManager,
+  UserOptionManager, FilterKeyManager, TeamManager, OrganizationManager)
 from sentry.signals import buffer_incr_complete
-from sentry.utils import cached_property, \
-  MockDjangoRequest
+from sentry.utils import cached_property, MockDjangoRequest
 from sentry.utils.models import Model, GzippedDictField
 from sentry.utils.imports import import_string
 from sentry.utils.strings import truncatechars
@@ -81,7 +80,7 @@ class Organization(Model):
     owner = models.ForeignKey(User, null=True)
     date_added = models.DateTimeField(default=timezone.now)
 
-    objects = ProjectManager(cache_fields=[
+    objects = OrganizationManager(cache_fields=[
         'pk',
         'slug',
     ])

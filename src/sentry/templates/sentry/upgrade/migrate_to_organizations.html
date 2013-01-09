@@ -1,0 +1,81 @@
+{% extends "sentry/layout.html" %}
+
+{% load crispy_forms_tags %}
+{% load i18n %}
+
+{% block title %}{% trans "Organization Migration" %} | {{ block.super }}{% endblock %}
+
+{% block page_header_block %}{% endblock %}
+{% block bodyclass %}{% endblock %}
+
+{% block main %}
+    <section class="body">
+        <div class="page-header">
+            <h2>{% trans "Organization Migration" %}</h2>
+        </div>
+        <p>Sentry now has the concept of Organizations. These work similarly to other services, and you'll be able to use them as a super-team. Each organization can have any number of projects and teams under it, and each team can be assigned to any number of projects.</p>
+
+        <p>Organizations, unlike teams, are used to manage users, permissions, and other settings for all projects under their ownership.</p>
+
+        <hr>
+
+        {% if not organization_list %}
+            <p>To get started, you'll first need to create an organization:</p>
+        {% else %}
+            <p>You have access to {{ organization_list|length }} organization(s). If you want to create more you can do so now.</p>
+        {% endif %}
+
+        <form method="post" action="">
+            {% csrf_token %}
+            {{ form|as_crispy_errors }}
+            {% for field in form %}
+                {{ field|as_crispy_field }}
+            {% endfor %}
+            <input type="submit" value="{% trans "Create Organization" %}" class="btn btn-primary">
+        </form>
+
+        {% if organization_list %}
+            <hr>
+
+            <p>Finally, you'll need to assign each team to an organization that you own:</p>
+
+            <table class="table table-striped migrate-list">
+                <thead>
+                    <tr>
+                        <th>Team</th>
+                        <th>Organization</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for team in team_list %}
+                        <tr>
+                            <td>{{ team.name }} &mdash; <small>{{ team.slug }}</small></td>
+                            <td><select name="organization[{{ team.slug }}]" data-team="{{ team.slug }}" data-placeholder="Select an Organization">
+                                {% if not team.organization %}
+                                    <option></option>
+                                {% endif %}
+                                {% for organization in organization_list %}
+                                    <option value="{{ organization.slug }}"
+                                        {% if team.organization == organization %} selected="selected"{% endif %}>{{ organization.name }}</option>
+                                {% endfor %}
+                            </select> <span class="status">
+                                {% if team.organization %}
+                                    <i class="icon-ok"></i>
+                                {% else %}
+                                    <i class="icon-warning-sign"></i>
+                                {% endif %}
+                            </span></td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+
+            <p>Your changes will be automatically saved. Once you're finished, you can close this page or <a href="{% url sentry %}">continue to your dashboard</a>.</p>
+
+        {% endif %}
+    </section>
+
+    <script>
+    new app.MigrateToOrganizationsPage({el: '.body'});
+    </script>
+{% endblock %}

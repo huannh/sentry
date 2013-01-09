@@ -20,19 +20,21 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.vary import vary_on_cookie
 from django.views.generic.base import View as BaseView
 from sentry.conf import settings
-from sentry.constants import MEMBER_USER, STATUS_MUTED, STATUS_UNRESOLVED
-from sentry.coreapi import project_from_auth_vars, \
-  decode_and_decompress_data, safely_load_json_string, validate_data, \
-  insert_data_to_database, APIError, APIForbidden, extract_auth_vars
+from sentry.constants import (MEMBER_USER, MEMBER_OWNER, STATUS_MUTED,
+    STATUS_UNRESOLVED)
+from sentry.coreapi import (project_from_auth_vars,
+    decode_and_decompress_data, safely_load_json_string, validate_data,
+    insert_data_to_database, APIError, APIForbidden, extract_auth_vars)
 from sentry.exceptions import InvalidData
-from sentry.models import Group, GroupBookmark, Project, ProjectCountByMinute, FilterValue
+from sentry.models import (Group, GroupBookmark, Project, ProjectCountByMinute,
+    FilterValue, Organization)
 from sentry.plugins import plugins
 from sentry.utils import json
 from sentry.utils.cache import cache
 from sentry.utils.db import has_trending
 from sentry.utils.javascript import to_json
 from sentry.utils.http import is_valid_origin, get_origins
-from sentry.web.decorators import has_access
+from sentry.web.decorators import has_access, has_team_access
 from sentry.web.frontend.groups import _get_group_list
 from sentry.web.helpers import render_to_response, get_project_list
 
@@ -605,6 +607,25 @@ def search_tags(request, project):
     response['Content-Type'] = 'application/json'
 
     return response
+
+
+@csrf_exempt
+@has_team_access(MEMBER_OWNER)
+@never_cache
+@api
+def set_team_organization(request, team):
+    organization = Organization.objects.get(
+        slug=request.POST['organization'],
+    )
+    if not request.user.is_superuser:
+        assert request.user == team.owner == organization.owner
+
+    team.update(organization=organization)
+
+    for project in team.projects.all():
+        project.update(organization=organization)
+
+    return to_json(team, request)
 
 
 def crossdomain_xml_index(request):

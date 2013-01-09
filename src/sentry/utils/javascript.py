@@ -8,7 +8,7 @@ sentry.utils.javascript
 from django.core.urlresolvers import reverse
 from django.utils.html import escape
 from sentry.constants import STATUS_RESOLVED
-from sentry.models import Group, GroupBookmark
+from sentry.models import Team, Group, GroupBookmark
 from sentry.templatetags.sentry_plugins import get_tags
 from sentry.utils import json
 
@@ -52,6 +52,18 @@ class Transformer(object):
 
     def transform(self, obj, request=None):
         return {}
+
+
+@register(Team)
+class TeamTransformer(Transformer):
+    def transform(self, obj, request=None):
+        return {
+            'slug': str(obj.slug),
+            'organization': {
+                'name': obj.organization.slug,
+                'name': obj.organization.name,
+            }
+        }
 
 
 @register(Group)

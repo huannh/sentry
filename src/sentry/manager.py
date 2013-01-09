@@ -1172,3 +1172,22 @@ class TeamManager(BaseManager):
             results[team.slug] = team
 
         return results
+
+
+class OrganizationManager(BaseManager):
+    def get_for_user(self, user):
+        """
+        Returns a SortedDict of all organizations a user has ownership access to.
+        """
+        if not user.is_authenticated():
+            return SortedDict()
+
+        qs = self.filter(
+            owner=user,
+        )
+
+        results = SortedDict()
+        for org in sorted(qs, key=lambda x: x.name):
+            results[org.slug] = org
+
+        return results

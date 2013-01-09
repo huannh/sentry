@@ -12,7 +12,7 @@ from django.conf.urls.defaults import include, patterns, url
 
 from sentry.web import api
 from sentry.web.frontend import accounts, generic, groups, events, \
-  projects, admin, docs, teams
+  projects, admin, docs, teams, organizations
 
 __all__ = ('urlpatterns',)
 
@@ -114,6 +114,7 @@ urlpatterns = patterns('',
     # Global
 
     url(r'^$', generic.dashboard, name='sentry'),
+    url(r'^upgrade/organizations/$', organizations.migrate_to_organizations, name='sentry-migrate-organizations'),
     url(r'^wall/$', generic.wall_display, name='sentry-wall'),
     url(r'^manage/status/$', admin.status_env, name='sentry-admin-status'),
     url(r'^manage/status/packages/$', admin.status_packages, name='sentry-admin-packages-status'),
@@ -137,6 +138,7 @@ urlpatterns = patterns('',
     url(r'^crossdomain\.xml$', api.crossdomain_xml_index, name='sentry-api-crossdomain-xml-index'),
     url(r'^api/store/$', api.StoreView.as_view(), name='sentry-api-store'),
     url(r'^api/notification/$', api.notification, name='sentry-api-notification'),
+    url(r'^api/teams/(?P<team_slug>[\w_-]+)/set/organization/$', api.set_team_organization, name='sentry-api-set-team-organization'),
     url(r'^api/(?P<project_id>[\w_-]+)/crossdomain\.xml$', api.crossdomain_xml, name='sentry-api-crossdomain-xml'),
     url(r'^api/(?P<project_id>[\w_-]+)/store/$', api.StoreView.as_view(), name='sentry-api-store'),
     url(r'^api/(?P<project_id>[\w_-]+)/poll/$', api.poll, name='sentry-api-poll'),

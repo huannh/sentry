@@ -267,6 +267,48 @@
 
     });
 
+    app.MigrateToOrganizationsPage = BasePage.extend({
+
+        initialize: function(data){
+            var self = this;
+
+            this.el = $(data.el);
+
+            BasePage.prototype.initialize.call(this, data);
+
+            this.el.find('select').select2({width: 'element'});
+
+            this.el.find('.migrate-list select').change(function(){
+                // <i class="icon-warning-sign"></i> <i class="icon-ok"></i>
+                var $el = $(this);
+                var $status = $el.parent().find('.status');
+
+                $status.html('<i class="icon-refresh"></i>');
+
+                $.ajax({
+                    url: self.getSetOrganizationUrl($(this).attr('data-team')),
+                    type: 'post',
+                    data: {
+                        organization: this.value
+                    },
+                    dataType: 'json',
+                    success: function(team){
+                        $status.html('<i class="icon-ok"></i>');
+                    },
+                    failure: function(){
+                        $status.html('<i class="icon-warning-sign"></i>');
+                    }
+                });
+            });
+        },
+
+        getSetOrganizationUrl: function(team_id){
+            return app.config.urlPrefix + '/api/teams/' + team_id + '/set/organization/';
+        }
+
+    });
+
+
     app.WallPage = BasePage.extend({
 
         initialize: function(){
