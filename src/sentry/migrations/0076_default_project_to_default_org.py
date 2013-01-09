@@ -15,8 +15,8 @@ class Migration(DataMigration):
             return
 
         organization = orm['sentry.Organization'].objects.create(
-            name='Sentry',
-            slug='sentry',
+            name='Default',
+            slug='default',
         )
         orm['sentry.Project'].objects.filter(id=project.id).update(organization=organization)
 

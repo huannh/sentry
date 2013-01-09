@@ -940,8 +940,8 @@ def create_default_project(created_models, verbosity=2, **kwargs):
             return
 
         organization = Organization.objects.create(
-            name='Sentry',
-            slug='sentry',
+            name='Default',
+            slug='default',
         )
 
         project = Project.objects.create(
