@@ -75,6 +75,26 @@ class Option(Model):
     ])
 
 
+class Organization(Model):
+    slug = models.SlugField(unique=True, null=True)
+    name = models.CharField(max_length=200)
+    owner = models.ForeignKey(User, null=True)
+    date_added = models.DateTimeField(default=timezone.now)
+
+    objects = ProjectManager(cache_fields=[
+        'pk',
+        'slug',
+    ])
+
+    def __unicode__(self):
+        return u'%s (%s)' % (self.name, self.slug)
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            slugify_instance(self, self.name)
+        super(Organization, self).save(*args, **kwargs)
+
+
 class Project(Model):
     """
     Projects are permission based namespaces which generally
@@ -83,6 +103,7 @@ class Project(Model):
     A project may be owned by only a single team, and may or may not
     have an owner (which is thought of as a project creator).
     """
+    organization = models.ForeignKey(Organization, null=True)
     slug = models.SlugField(unique=True, null=True)
     _team = models.ForeignKey('sentry.Team', db_column='team_id', null=True, related_name='legacy_team')
     name = models.CharField(max_length=200)
@@ -264,6 +285,7 @@ class Team(Model):
     """
     A team represents a group of individuals which maintain ownership of projects.
     """
+    organization = models.ForeignKey(Organization, null=True)
     slug = models.SlugField(unique=True)
     name = models.CharField(max_length=64)
     owner = models.ForeignKey(User, related_name='team_owner', null=True)
