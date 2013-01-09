@@ -2,7 +2,7 @@
 import datetime
 from south.db import db
 from south.v2 import DataMigration
-from django.conf import settings
+from sentry.conf import settings
 from django.db import models
 
 
