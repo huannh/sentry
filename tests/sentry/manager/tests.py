@@ -46,6 +46,32 @@ class SentryManagerTest(TestCase):
         self.assertEquals(event.message, 'foo')
         self.assertEquals(event.project_id, 1)
 
+    def test_records_users_seen(self):
+        # TODO: we could lower the level of this test by just testing our signal receiver's logic
+        event = Group.objects.from_kwargs(1, message='foo', **{
+            'sentry.interfaces.User': {
+                'email': 'foo@example.com',
+            },
+        })
+        group = Group.objects.get(id=event.group_id)
+        assert group.users_seen == 1
+
+        event = Group.objects.from_kwargs(1, message='foo', **{
+            'sentry.interfaces.User': {
+                'email': 'foo@example.com',
+            },
+        })
+        group = Group.objects.get(id=event.group_id)
+        assert group.users_seen == 1
+
+        event = Group.objects.from_kwargs(1, message='foo', **{
+            'sentry.interfaces.User': {
+                'email': 'bar@example.com',
+            },
+        })
+        group = Group.objects.get(id=event.group_id)
+        assert group.users_seen == 2
+
     def test_valid_timestamp_without_tz(self):
         # TODO: this doesnt error, but it will throw a warning. What should we do?
         with self.Settings(USE_TZ=True):
@@ -189,6 +215,14 @@ class SentryManagerTest(TestCase):
         self.assertEquals(group.times_seen, 2)
         self.assertEquals(group.last_seen.replace(microsecond=0), event.datetime.replace(microsecond=0))
         self.assertEquals(group.message, 'foo bar')
+
+    @mock.patch('sentry.manager.maybe_delay')
+    def test_scrapes_javascript_source(self, maybe_delay):
+        from sentry.tasks.fetch_source import fetch_javascript_source
+        with self.Settings(SENTRY_SCRAPE_JAVASCRIPT_CONTEXT=True):
+            event = Group.objects.from_kwargs(1, message='hello', platform='javascript')
+
+            maybe_delay.assert_any_call(fetch_javascript_source, event)
 
     def test_add_tags(self):
         event = Group.objects.from_kwargs(1, message='rrr')

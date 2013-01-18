@@ -12,6 +12,7 @@ from django.contrib.auth.models import User
 from django.utils.translation import ugettext_lazy as _
 
 from sentry.conf import settings
+from sentry.constants import EMPTY_PASSWORD_VALUES
 from sentry.models import UserOption
 
 
@@ -76,6 +77,10 @@ class AccountSettingsForm(forms.Form):
         self.user = user
         super(AccountSettingsForm, self).__init__(*args, **kwargs)
 
+        # HACK: dont require current password if they dont have one
+        if self.user.password in EMPTY_PASSWORD_VALUES:
+            del self.fields['old_password']
+
     def clean_old_password(self):
         """
         Validates that the old_password field is correct.
@@ -116,7 +121,6 @@ class AppearanceSettingsForm(forms.Form):
         # if commit:
         #     self.user.save()
 
-        print self.user, "setting options"
         # Save user language
         UserOption.objects.set_value(
             user=self.user,

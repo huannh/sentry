@@ -25,8 +25,8 @@ from django.contrib.auth.signals import user_logged_in
 from django.core.urlresolvers import reverse
 from django.db import models
 from django.db.models import F, Sum
-from django.db.models.signals import post_syncdb, post_save, pre_delete, \
-  class_prepared
+from django.db.models.signals import (post_syncdb, post_save, pre_delete,
+    class_prepared)
 from django.template.defaultfilters import slugify
 from django.utils import timezone
 from django.utils.datastructures import SortedDict
@@ -35,12 +35,13 @@ from django.utils.translation import ugettext_lazy as _
 
 from sentry.conf import settings
 from sentry.constants import (STATUS_LEVELS, MEMBER_TYPES,  # NOQA
-  MEMBER_OWNER, MEMBER_USER, MEMBER_SYSTEM)  # NOQA
-from sentry.manager import GroupManager, ProjectManager, \
-  MetaManager, InstanceMetaManager, SearchDocumentManager, BaseManager, \
-  UserOptionManager, FilterKeyManager, TeamManager
-from sentry.utils import cached_property, \
-  MockDjangoRequest
+    MEMBER_OWNER, MEMBER_USER, MEMBER_SYSTEM, PLATFORM_TITLES, PLATFORM_LIST,
+    STATUS_VISIBLE, STATUS_HIDDEN)  # NOQA
+from sentry.manager import (GroupManager, ProjectManager,
+    MetaManager, InstanceMetaManager, SearchDocumentManager, BaseManager,
+    UserOptionManager, FilterKeyManager, TeamManager)
+from sentry.signals import buffer_incr_complete
+from sentry.utils import cached_property, MockDjangoRequest
 from sentry.utils.models import Model, GzippedDictField, update
 from sentry.utils.imports import import_string
 from sentry.utils.strings import truncatechars
@@ -132,6 +133,11 @@ class Project(Model):
     A project may be owned by only a single team, and may or may not
     have an owner (which is thought of as a project creator).
     """
+    PLATFORM_CHOICES = tuple(
+        (p, PLATFORM_TITLES.get(p, p.title()))
+        for p in PLATFORM_LIST
+    ) + (('other', 'Other'),)
+
     slug = models.SlugField(unique=True, null=True)
     name = models.CharField(max_length=200)
     owner = models.ForeignKey(User, related_name="sentry_owned_project_set", null=True)
@@ -139,9 +145,10 @@ class Project(Model):
     public = models.BooleanField(default=settings.ALLOW_PUBLIC_PROJECTS and settings.PUBLIC)
     date_added = models.DateTimeField(default=timezone.now)
     status = models.PositiveIntegerField(default=0, choices=(
-        (0, 'Visible'),
-        (1, 'Hidden'),
+        (STATUS_VISIBLE, 'Visible'),
+        (STATUS_HIDDEN, 'Hidden'),
     ), db_index=True)
+    platform = models.CharField(max_length=32, choices=PLATFORM_CHOICES, null=True)
 
     objects = ProjectManager(cache_fields=[
         'pk',
@@ -390,6 +397,42 @@ class MessageBase(Model):
             return self.culprit
         return truncatechars(self.message.splitlines()[0], 100)
 
+    @property
+    def user_ident(self):
+        """
+        The identifier from a user is considered from several interfaces.
+
+        In order:
+
+        - User.id
+        - User.email
+        - User.username
+        - Http.env.REMOTE_ADDR
+
+        """
+        user_data = self.data.get('sentry.interfaces.User')
+        if user_data:
+            ident = user_data.get('id')
+            if ident:
+                return 'id:%s' % (ident,)
+
+            ident = user_data.get('email')
+            if ident:
+                return 'email:%s' % (ident,)
+
+            ident = user_data.get('username')
+            if ident:
+                return 'username:%s' % (ident,)
+
+        http_data = self.data.get('sentry.interfaces.Http')
+        if http_data:
+            if 'env' in http_data:
+                ident = http_data['env'].get('REMOTE_ADDR')
+                if ident:
+                    return 'ip:%s' % (ident,)
+
+        return None
+
 
 class Group(MessageBase):
     """
@@ -397,6 +440,7 @@ class Group(MessageBase):
     """
     status = models.PositiveIntegerField(default=0, choices=STATUS_LEVELS, db_index=True)
     times_seen = models.PositiveIntegerField(default=1, db_index=True)
+    users_seen = models.PositiveIntegerField(default=0, db_index=True)
     last_seen = models.DateTimeField(default=timezone.now, db_index=True)
     first_seen = models.DateTimeField(default=timezone.now, db_index=True)
     resolved_at = models.DateTimeField(null=True, db_index=True)
@@ -807,6 +851,28 @@ class LostPasswordHash(models.Model):
             logger.exception(e)
 
 
+class AffectedUserByGroup(Model):
+    """
+    Stores a count of how many times a ``Group`` has affected
+    a user.
+    """
+    project = models.ForeignKey(Project)
+    group = models.ForeignKey(Group)
+    ident = models.CharField(max_length=200)
+    times_seen = models.PositiveIntegerField(default=0)
+    last_seen = models.DateTimeField(default=timezone.now, db_index=True)
+    first_seen = models.DateTimeField(default=timezone.now, db_index=True)
+
+    objects = BaseManager()
+
+    class Meta:
+        unique_together = (('project', 'ident', 'group'),)
+
+    def __unicode__(self):
+        return u'group_id=%s, times_seen=%s, ident=%s' % (self.group_id, self.times_seen,
+                                                          self.ident)
+
+
 class Activity(models.Model):
     COMMENT = 0
     STATUS_CHANGE = 1
@@ -1000,6 +1066,22 @@ def set_language_on_logon(request, user, **kwargs):
     if language and hasattr(request, 'session'):
         request.session['django_language'] = language
 
+
+@buffer_incr_complete.connect(sender=AffectedUserByGroup, weak=False)
+def record_user_count(filters, created, **kwargs):
+    from sentry import app
+
+    if not created:
+        # if it's not a new row, it's not a unique user
+        return
+
+    app.buffer.incr(Group, {
+        'users_seen': 1,
+    }, {
+        'id': filters['group'].id,
+    })
+
+
 # Signal registration
 post_syncdb.connect(
     create_default_project,
@@ -1036,6 +1118,10 @@ pre_delete.connect(
     dispatch_uid="remove_key_for_team_member",
     weak=False,
 )
-user_logged_in.connect(set_language_on_logon)
+user_logged_in.connect(
+    set_language_on_logon,
+    dispatch_uid="set_language_on_logon",
+    weak=False
+)
 
 add_introspection_rules([], ["^social_auth\.fields\.JSONField"])

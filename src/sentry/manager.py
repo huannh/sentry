@@ -16,6 +16,7 @@ import logging
 import re
 import warnings
 import weakref
+import time
 
 from celery.signals import task_postrun
 from django.conf import settings as dj_settings
@@ -35,6 +36,7 @@ from sentry.constants import STATUS_RESOLVED, STATUS_UNRESOLVED
 from sentry.processors.base import send_group_processors
 from sentry.signals import regression_signal
 from sentry.tasks.index import index_event
+from sentry.tasks.fetch_source import fetch_javascript_source
 from sentry.utils.cache import cache, Lock
 from sentry.utils.dates import get_sql_date_trunc
 from sentry.utils.db import get_db_engine, has_charts, resolve_expression_node
@@ -413,7 +415,7 @@ class ChartMixin(object):
             results[item] = []
             for point in xrange(points, -1, -1):
                 dt = today - datetime.timedelta(**{d_type: point * modifier})
-                results[item].append((int((dt).strftime('%s')) * 1000, tsdata.get(dt, 0)))
+                results[item].append((int(time.mktime((dt).timetuple())) * 1000, tsdata.get(dt, 0)))
 
         if key is None:
             return results[None]
@@ -524,9 +526,16 @@ class GroupManager(BaseManager, ChartMixin):
                 transaction.rollback_unless_managed(using=group._state.db)
                 logger.exception(u'Error indexing document: %s', e)
 
+        if settings.SCRAPE_JAVASCRIPT_CONTEXT and event.platform == 'javascript' and not is_sample:
+            try:
+                maybe_delay(fetch_javascript_source, event)
+            except Exception, e:
+                transaction.rollback_unless_managed(using=group._state.db)
+                logger.exception(u'Error fetching javascript source: %s', e)
+
         if is_new:
             try:
-                regression_signal.send(sender=self.model, instance=group)
+                regression_signal.send_robust(sender=self.model, instance=group)
             except Exception, e:
                 transaction.rollback_unless_managed(using=group._state.db)
                 logger.exception(u'Error sending regression signal: %s', e)
@@ -561,6 +570,8 @@ class GroupManager(BaseManager, ChartMixin):
             for g in groups[1:]:
                 g.delete()
             group, is_new = groups[0], False
+        else:
+            transaction.commit_unless_managed(using=group._state.db)
 
         update_kwargs = {
             'times_seen': 1,
@@ -594,7 +605,7 @@ class GroupManager(BaseManager, ChartMixin):
             silence = silence_timedelta.days * 86400 + silence_timedelta.seconds
 
             app.buffer.incr(self.model, update_kwargs, {
-                'pk': group.pk,
+                'id': group.id,
             }, extra)
         else:
             # TODO: this update should actually happen as part of create
@@ -641,9 +652,32 @@ class GroupManager(BaseManager, ChartMixin):
             ('level', event.get_level_display()),
         ]
 
-        self.add_tags(group, tags)
+        user_ident = event.user_ident
+        if user_ident:
+            self.record_affected_user(group, user_ident)
+
+        try:
+            self.add_tags(group, tags)
+        except Exception, e:
+            logger.exception('Unable to record tags: %s' % (e,))
 
         return group, is_new, is_sample
+
+    def record_affected_user(self, group, user_ident):
+        from sentry.models import AffectedUserByGroup
+
+        project = group.project
+        date = group.last_seen
+
+        app.buffer.incr(AffectedUserByGroup, {
+            'times_seen': 1,
+        }, {
+            'group': group,
+            'project': project,
+            'ident': user_ident,
+        }, {
+            'last_seen': date,
+        })
 
     def add_tags(self, group, tags):
         from sentry.models import FilterValue, FilterKey, MessageFilterValue
@@ -652,6 +686,10 @@ class GroupManager(BaseManager, ChartMixin):
         date = group.last_seen
 
         for key, value in itertools.ifilter(lambda x: bool(x[1]), tags):
+            if not value:
+                continue
+
+            value = unicode(value)
             if len(value) > MAX_TAG_LENGTH:
                 continue
 
@@ -995,7 +1033,7 @@ class SearchDocumentManager(BaseManager):
                 ON st.document_id = sd.id
             WHERE %s
                 sd.project_id = %s
-            GROUP BY sd.id, sd.group_id, sd.total_events, sd.date_changed, sd.date_added
+            GROUP BY sd.id, sd.group_id, sd.total_events, sd.date_changed, sd.date_added, sd.project_id, sd.status
             ORDER BY %s
             LIMIT %d OFFSET %d
         """ % (

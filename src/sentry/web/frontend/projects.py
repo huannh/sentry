@@ -31,7 +31,8 @@ from sentry.web.helpers import render_to_response, get_project_list, \
 def dashboard(request, project):
     if not Group.objects.filter(project=project).exists():
         return HttpResponseRedirect(reverse('sentry-get-started', args=[project.slug]))
-    return HttpResponseRedirect(reverse('sentry-stream', args=[project.slug]))
+    return HttpResponseRedirect('%s?%s' % (reverse('sentry-stream', args=[project.slug]),
+        request.META.get('QUERY_STRING', '')))
 
 
 @login_required
@@ -44,7 +45,7 @@ def get_started(request, project):
 
 @login_required
 def project_list(request):
-    project_list = get_project_list(request.user, hidden=True).values()
+    project_list = get_project_list(request.user, hidden=True, select_related=["owner"]).values()
     team_list = Team.objects.in_bulk([p.team_id for p in project_list])
     if request.user.is_authenticated():
         memberships = dict((tm.team_id, tm) for tm in TeamMember.objects.filter(user=request.user, team__in=team_list))
@@ -121,6 +122,8 @@ def new_project(request):
         project.team = team
         project.save()
 
+        if project.platform not in (None, 'other'):
+            return HttpResponseRedirect(reverse('sentry-docs-client', args=[project.slug, project.platform]))
         return HttpResponseRedirect(reverse('sentry-get-started', args=[project.slug]))
 
     return render_to_response('sentry/projects/new.html', {
@@ -173,7 +176,9 @@ def manage_project(request, project):
     # XXX: We probably shouldnt allow changing the team unless they're the project owner
     team_list = Team.objects.get_for_user(project.owner or request.user, MEMBER_OWNER)
 
-    if request.user.has_perm('sentry.can_change_project'):
+    can_admin_project = request.user == project.owner or request.user.has_perm('sentry.can_change_project')
+
+    if can_admin_project:
         form_cls = EditProjectAdminForm
     else:
         form_cls = EditProjectForm

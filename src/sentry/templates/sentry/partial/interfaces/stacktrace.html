@@ -5,7 +5,7 @@
     <div class="page-header">
         <a href="javascript:void(0)" data-container="#raw_stacktrace" data-title="Stacktrace" class="popup btn small pull-right">{% trans "Raw" %}</a>
         {% if system_frames %}
-            <form class="pull-right" style="margin:8px 20px 0 0;">
+            <form class="pull-right" style="margin:8px 20px 0 0; white-space: nowrap">
                 <label class="checkbox"><input type="checkbox" id="show_hidden_frames"> Show {{ system_frames }} hidden frames</label>
             </form>
         {% endif %}
@@ -33,7 +33,7 @@
 
                     {% if frame.context or frame.vars %}
                         <div class="commands">
-                            <a href="javascript:void(0)" onclick="$('.frame-{{ forloop.counter0 }}').toggleClass('expanded')" title="{% trans "Toggle Context" %}" rel="tooltip" class="tip"><i class="icon-th-list"></i></a>
+                            <a href="javascript:void(0)" onclick="$('.frame-{{ forloop.counter0 }}').toggleClass('expanded')" title="{% trans "Toggle Context" %}" rel="tooltip" class="tip">{% if frame.vars %}<i class="icon-info-sign"></i> {% endif %}{% if frame.context %}<i class="icon-tasks"></i> {% endif %}</a>
                         </div>
                     {% endif %}
 
